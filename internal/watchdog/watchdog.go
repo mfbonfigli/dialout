@@ -75,7 +75,7 @@ type Thresholds struct {
 	HangUp   float64 // voicemail_or_ivr or hostile
 	Close    float64 // agent_said_goodbye
 	WrapUp   float64 // objective_reached or callee_wants_to_end
-	OffTopic float64 // off_topic, two checks in a row
+	OffTopic float64 // off_topic, two checks in a row, once the objective is likely reached
 	Stuck    float64 // stuck, two checks in a row
 }
 
@@ -114,8 +114,9 @@ func (r *Rules) Decide(p map[string]float64) (Action, string) {
 		return WrapUp, why(prompts.QCalleeWantsToEnd)
 	case r.stuck >= 2:
 		return WrapUp, why(prompts.QStuck) + ", twice in a row"
-	case r.offTopic >= 2:
-		return WrapUp, why(prompts.QOffTopic) + ", twice in a row"
+	case r.offTopic >= 2 && p[prompts.QObjectiveReached] >= 0.5:
+		// Asides while the work is still going on are normal; chatter after it's done isn't.
+		return WrapUp, why(prompts.QOffTopic) + ", twice in a row, " + why(prompts.QObjectiveReached)
 	}
 	return None, ""
 }

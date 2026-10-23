@@ -44,6 +44,7 @@ const (
 	BlockEndCall          = "tool.end_call"
 	BlockReason           = "tool.end_call.reason"
 	BlockCueWatchdog      = "cue.watchdog_wrap_up"
+	BlockCueWatchdogClose = "cue.watchdog_close"
 )
 
 // The watchdog's questions. Each has three blocks: "watchdog.<name>" (the question) and
@@ -65,7 +66,7 @@ var blocks = func() []string {
 	b := []string{
 		BlockSystem, BlockToolsThenGoodbye, BlockWithGoodbye, BlockCueOpening, BlockCueWrapUp, BlockCueFinal,
 		BlockNextEndCall, BlockNextGoodbye, BlockReportOutcome, BlockResult, BlockSummary, BlockDetails,
-		BlockEndCall, BlockReason, BlockCueWatchdog,
+		BlockEndCall, BlockReason, BlockCueWatchdog, BlockCueWatchdogClose,
 	}
 	for _, q := range WatchdogQuestions {
 		b = append(b, "watchdog."+q, "watchdog."+q+".true", "watchdog."+q+".false")
@@ -129,10 +130,11 @@ type Rendered struct {
 
 // Cues are the lines the call engine sends while the call runs.
 type Cues struct {
-	Opening  string // the callee stays silent after answering
-	WrapUp   string // 30 seconds before the time limit
-	Final    string // at the time limit
-	Watchdog string // the watchdog decided the call should wrap up
+	Opening       string // the callee stays silent after answering
+	WrapUp        string // 30 seconds before the time limit
+	Final         string // at the time limit
+	Watchdog      string // the watchdog decided the call should wrap up
+	WatchdogClose string // the conversation went on after that: close now
 }
 
 // Question is one of the watchdog's yes/no questions.
@@ -323,7 +325,7 @@ func (s *Set) Render(c Closing, v Vars) (*Rendered, error) {
 	r := &Rendered{
 		System: exec(BlockSystem, false),
 		Cues: Cues{Opening: exec(BlockCueOpening, true), WrapUp: exec(BlockCueWrapUp, true), Final: exec(BlockCueFinal, true),
-			Watchdog: exec(BlockCueWatchdog, true)},
+			Watchdog: exec(BlockCueWatchdog, true), WatchdogClose: exec(BlockCueWatchdogClose, true)},
 		Hints: Hints{EndCall: exec(BlockNextEndCall, true), Goodbye: exec(BlockNextGoodbye, true)},
 		Tools: ToolTexts{
 			ReportOutcome: exec(BlockReportOutcome, false), Result: exec(BlockResult, false),

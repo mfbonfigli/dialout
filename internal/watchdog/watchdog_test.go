@@ -103,13 +103,19 @@ func TestRules(t *testing.T) {
 	if a, _ := r.Decide(p("off_topic", 0.75)); a != None {
 		t.Errorf("first off-topic check: %q", a)
 	}
-	if a, why := r.Decide(p("off_topic", 0.8)); a != WrapUp || !strings.Contains(why, "twice") {
+	if a, why := r.Decide(p("off_topic", 0.8, "objective_reached", 0.6)); a != WrapUp || !strings.Contains(why, "twice") {
 		t.Errorf("second off-topic check: %q %s", a, why)
 	}
+	// While the objective is still open, asides don't wrap up the call.
 	r = &Rules{T: DefaultThresholds}
-	r.Decide(p("off_topic", 0.8))
-	r.Decide(p("off_topic", 0.1))
-	if a, _ := r.Decide(p("off_topic", 0.8)); a != None {
+	r.Decide(p("off_topic", 0.9))
+	if a, why := r.Decide(p("off_topic", 0.94, "objective_reached", 0.3)); a != None {
+		t.Errorf("off topic with the objective open: %q %s", a, why)
+	}
+	r = &Rules{T: DefaultThresholds}
+	r.Decide(p("off_topic", 0.8, "objective_reached", 0.6))
+	r.Decide(p("off_topic", 0.1, "objective_reached", 0.6))
+	if a, _ := r.Decide(p("off_topic", 0.8, "objective_reached", 0.6)); a != None {
 		t.Errorf("streak not reset: %q", a)
 	}
 	// Going in circles, the same way.

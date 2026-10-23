@@ -112,7 +112,7 @@ After every transcript line, dialout sends the brief and the transcript so far t
 |---|---|
 | Voicemail/menu or hostile ≥ `hang_up` (0.9) | Drop the line at once |
 | Agent said goodbye ≥ `close` (0.8) and no `end_call` within 3 s | Hang up once the agent is silent |
-| Objective reached or callee wants to end ≥ `wrap_up` (0.8), or going in circles ≥ `stuck` (0.7) or off topic ≥ `off_topic` (0.7) twice in a row | A cue to say goodbye and close at the next silence; if the conversation goes on (two more lines from the callee, or 20 s), the final cue and the line drops |
+| Objective reached or callee wants to end ≥ `wrap_up` (0.8), or going in circles ≥ `stuck` (0.7) twice in a row, or off topic ≥ `off_topic` (0.7) twice in a row once the objective is likely reached | A cue to say goodbye and close at the next silence; if the conversation goes on after that cue (two more lines from the callee, or 20 s), a close cue and the line drops |
 
 - **Off by default.** Turn it on with `watchdog.enabled` and an OpenRouter key.
 - **It can only end a call sooner,** never prolong it or make the agent say anything new. A transcript saying "ignore your instructions" can at worst keep it from acting, and the time limit still applies.
@@ -132,7 +132,7 @@ After every transcript line, dialout sends the brief and the transcript so far t
 | `cue.opening`, `cue.wrap_up`, `cue.final` | Lines sent while the call runs: silence after the answer, 30 s before the limit, at the limit |
 | `tool.next.end_call`, `tool.next.goodbye` | Sonic's tool results: the next step. Keep them in the call's language |
 | `tool.report_outcome[.result/.summary/.details]`, `tool.end_call[.reason]` | Tool descriptions, English by default |
-| `cue.watchdog_wrap_up`, `watchdog.<question>[.true/.false]` | The watchdog's wrap-up cue (spoken) and its questions (not spoken) |
+| `cue.watchdog_wrap_up`, `cue.watchdog_close`, `watchdog.<question>[.true/.false]` | The watchdog's cues (spoken) and its questions (not spoken) |
 
 Variables: `.Owner`, `.Female` (the voice's grammatical gender), `.Callee`, `.Kind`, `.Label`, `.Opening`, `.Objective`, `.Limits`, `.Context`, `.Now` and `.Closing`. `{{weekday .Now "Sunday Monday …"}}` and `{{month .Now "January …"}}` give day and month names in any language. Every block is test-rendered at load time, so a typo fails at start-up, not on a call. The brief is inserted as data and never evaluated.
 

@@ -887,11 +887,51 @@ func TestWatchdogWrapsUpThenCloses(t *testing.T) {
 		return name == "textInput" && b["content"] == builtinCues.Watchdog
 	})
 	h.sonic.waitInput(t, func(name string, b map[string]any) bool {
-		return name == "textInput" && b["content"] == builtinCues.Final
+		return name == "textInput" && b["content"] == builtinCues.WatchdogClose
 	})
 	go h.sonic.endsWhenClosed(t)
 	res := waitResult(t, resCh)
 	if res.EndReason != "watchdog_close" || len(res.Watchdog.Actions) != 1 || res.Watchdog.Actions[0].Action != "wrap_up" {
 		t.Fatalf("result = %+v, watchdog %+v", res, res.Watchdog)
+	}
+}
+
+// hear makes the fake Sonic report a final line from the callee.
+func (f *fakeSonic) hear(id, text string) {
+	f.emit("contentStart", map[string]any{"contentId": id, "type": "TEXT", "role": "USER", "additionalModelFields": `{"generationStage":"FINAL"}`})
+	f.emit("textOutput", map[string]any{"contentId": id, "content": text})
+	f.emit("contentEnd", map[string]any{"contentId": id, "type": "TEXT", "stopReason": "END_TURN"})
+}
+
+func TestWatchdogEscalatesOnlyAfterItsCue(t *testing.T) {
+	// A real call: the wrap-up cue was waiting for a silence that never came, the callee kept
+	// talking, and the call was closed on a legitimate question. The escalation must count from
+	// the cue going out.
+	h, _, resCh := watchdogCall(t, func(watchdog.State) map[string]float64 {
+		return map[string]float64{prompts.QObjectiveReached: 0.9}
+	})
+	h.sonic.say("a1", 1600, "Due pizze per le 20, confermate?")
+	h.sonic.hear("c1", "Un attimo che controllo.")
+	h.sonic.hear("c2", "Sì, alle venti va bene.")
+	h.sonic.hear("c3", "E per il tavolo, il bambino quanti anni ha?")
+	// The agent owes an answer: no cue yet, and no close either.
+	time.Sleep(600 * time.Millisecond)
+	h.mu.Lock()
+	for _, e := range h.events {
+		if e.Kind == "cue" && (e.Text == builtinCues.Watchdog || e.Text == builtinCues.WatchdogClose) {
+			t.Errorf("cue %q sent while the agent owed an answer", e.Text)
+		}
+	}
+	h.mu.Unlock()
+	h.sonic.say("a2", 1600, "Ha sei anni.")
+	h.sonic.waitInput(t, func(name string, b map[string]any) bool {
+		return name == "textInput" && b["content"] == builtinCues.Watchdog
+	})
+	h.sonic.waitInput(t, func(name string, b map[string]any) bool {
+		return name == "textInput" && b["content"] == builtinCues.WatchdogClose
+	})
+	go h.sonic.endsWhenClosed(t)
+	if res := waitResult(t, resCh); res.EndReason != "watchdog_close" {
+		t.Fatalf("result = %+v", res)
 	}
 }

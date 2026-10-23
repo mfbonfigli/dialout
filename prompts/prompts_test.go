@@ -40,7 +40,7 @@ func TestBuiltinSystem(t *testing.T) {
 			t.Errorf("prompt lacks %q:\n%s", want, full)
 		}
 	}
-	for _, unwanted := range []string{"saluta e di' in una frase", "amici e familiari", "dai del tu"} {
+	for _, unwanted := range []string{"saluta e di' la prima cosa", "amici e familiari", "dai del tu"} {
 		if strings.Contains(full, unwanted) {
 			t.Errorf("prompt has %q:\n%s", unwanted, full)
 		}
@@ -52,7 +52,7 @@ func TestBuiltinSystem(t *testing.T) {
 		"ore 18:30.\n\nCon attività e uffici parla come un cliente, in prima persona, e dai del Lei; con amici e familiari sii caloroso e dai del tu.\n\n",
 		"di' che sei un assistente che chiama",
 		"OBIETTIVO\nChiedere a che ora arriva.\n\nCOME\n", // no empty sections
-		"Quando rispondono, saluta e di' in una frase perché chiami.",
+		"Quando rispondono, saluta e di' la prima cosa che ti serve.",
 		"poi saluta. Per chiudere, prima registra l'esito con report_outcome",
 	} {
 		if !strings.Contains(bare, want) {
@@ -195,7 +195,8 @@ func TestBuiltinStaysOnTheObjective(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"Segui solo l'obiettivo. Se contiene più richieste, falle una alla volta.",
-		"Se ti chiedono qualcosa che non sai, dillo e proponi di verificare e richiamare. Non inventare.",
+		"Sei tu che chiami: se ti fanno una domanda, rispondi tu, non rigirarla.",
+		"scegli tu l'opzione più normale; per il resto di' che non lo sai e proponi di verificare e richiamare. Non inventare.",
 		"Quando l'obiettivo è raggiunto o non si può raggiungere, chiudi"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("built-in prompt lacks %q", want)
