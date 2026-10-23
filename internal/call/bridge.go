@@ -12,6 +12,7 @@ import (
 	"github.com/mfbonfigli/dialout/internal/twilio"
 	"github.com/mfbonfigli/dialout/internal/voice"
 	"github.com/mfbonfigli/dialout/internal/watchdog"
+	"github.com/mfbonfigli/dialout/prompts"
 )
 
 const (
@@ -61,19 +62,12 @@ type bridge struct {
 
 	closedAt time.Time // the engine closed the conversation cleanly (ElevenLabs' own end_call)
 
-	wrapCue        string // the wrap-up cue to send: the time limit's, or the watchdog's
-	wrapRespond    bool
-	overtimeReason string // why overtime closes the call: the time limit, or the watchdog
-	finalCue       string // the cue overtime sends: the time limit's, or the watchdog's close
-
-	// The watchdog (Config.Watchdog): a check after every transcript line, the latest only.
-	verdicts          chan verdict
-	wdRules           watchdog.Rules
-	wdCancel          context.CancelFunc
-	wdGoodbye         time.Time // it heard the agent's goodbye: close unless end_call follows
-	wdWrapAsked       bool      // it decided the agent should wrap up; the cue waits for a silence
-	wdWrapAt          time.Time // its wrap-up cue went out
-	wdCalleeAfterWrap int       // the callee's lines since then
+	// The watchdog (Config.Watchdog): a check every few transcript lines, the latest only.
+	verdicts  chan verdict
+	wdRules   watchdog.Rules
+	wdCancel  context.CancelFunc
+	wdLines   int // transcript lines since the last check
+	wdStarted int // checks started
 }
 
 type verdict struct {
@@ -165,17 +159,7 @@ func (b *bridge) run(ctx context.Context) string {
 			}
 			if b.wrapDue && !b.wrapSent && b.cueSafe(now) {
 				b.wrapSent = true
-				if b.wrapCue != "" {
-					b.cue(b.wrapCue, b.wrapRespond)
-					if b.wdWrapAsked {
-						b.wdWrapAt = now // escalation counts from the cue, not from the verdict
-					}
-				} else {
-					b.cue(b.r.vc.Prompt.Cues.WrapUp, false)
-				}
-			}
-			if reason := b.watchdogDue(now); reason != "" {
-				return reason
+				b.cue(b.r.vc.Prompt.Cues.WrapUp, false)
 			}
 			if !b.closedAt.IsZero() && (b.silent(now) || now.Sub(b.closedAt) >= t.EndMax) {
 				return "agent_closed"
@@ -284,9 +268,7 @@ func (b *bridge) handle(ctx context.Context, ev voice.Event) {
 		b.r.observe("interrupted", "")
 	case voice.Transcript:
 		b.transcript(ev)
-		if ev.Speaker == voice.SpeakerCallee && !b.wdWrapAt.IsZero() {
-			b.wdCalleeAfterWrap++
-		}
+		b.wdLines++
 		b.watch(ctx)
 	case voice.Outcome:
 		b.r.res.Outcome = &ev
@@ -297,8 +279,9 @@ func (b *bridge) handle(ctx context.Context, ev voice.Event) {
 			b.endCallAt = now
 			// Engines with a full language model say goodbye and call end_call in the same turn:
 			// if the agent spoke last, the goodbye is said. Sonic calls end_call first and says
-			// goodbye after.
-			b.goodbyeSaid = !b.lastTurnEnd.IsZero() && b.lastTurnEnd.After(b.lastCallee)
+			// goodbye after, so its last turn isn't the goodbye: wait for it.
+			b.goodbyeSaid = b.r.vc.Closing == prompts.WithGoodbye &&
+				!b.lastTurnEnd.IsZero() && b.lastTurnEnd.After(b.lastCallee)
 			b.r.observe("status", "end_call: "+ev.Reason)
 		}
 	case voice.Usage:
@@ -374,33 +357,27 @@ func (b *bridge) overtime(now time.Time) string {
 	if b.finalAt.IsZero() && (b.silent(now) || now.Sub(b.overtimeAt) >= grace/3) {
 		b.finalAt = now
 		b.wrapSent = true
-		if b.finalCue != "" {
-			b.cue(b.finalCue, true)
-		} else {
-			b.cue(b.r.vc.Prompt.Cues.Final, true)
-		}
+		b.cue(b.r.vc.Prompt.Cues.Final, true)
 	}
 	if (b.turnEndAfterFinal && b.silent(now)) || now.Sub(b.overtimeAt) >= grace {
-		if b.overtimeReason != "" {
-			return b.overtimeReason
-		}
 		return "time_limit"
 	}
 	return ""
 }
 
-// closing reports whether the call is already on its way out: end_call, the time limit, or the
-// engine's own close. The watchdog only acts before that.
-func (b *bridge) closing() bool {
-	return !b.endCallAt.IsZero() || !b.overtimeAt.IsZero() || !b.closedAt.IsZero()
-}
-
-// watch starts a watchdog check on the transcript so far, superseding the one still running.
+// watch starts a watchdog check every few transcript lines (the first after two, to catch a
+// voicemail early), superseding the one still running. Not once the call is closing.
 func (b *bridge) watch(ctx context.Context) {
 	w := b.r.cfg.Watchdog
-	if w == nil || b.closing() {
+	if w == nil || !b.endCallAt.IsZero() || !b.overtimeAt.IsZero() || !b.closedAt.IsZero() {
 		return
 	}
+	due := b.wdLines >= w.Every || (b.wdStarted == 0 && b.wdLines >= 2)
+	if !due {
+		return
+	}
+	b.wdLines = 0
+	b.wdStarted++
 	if b.wdCancel != nil {
 		b.wdCancel()
 	}
@@ -452,50 +429,13 @@ func (b *bridge) onVerdict(now time.Time, v verdict) string {
 	}
 	rep.Cost += v.answers.Cost
 	action, why := b.wdRules.Decide(v.answers.Probabilities)
-	if action == watchdog.None || (b.closing() && action != watchdog.HangUp) {
+	if action != watchdog.HangUp {
 		return ""
 	}
-	record := func() {
-		rep.Actions = append(rep.Actions, WatchdogAction{T: float64(now.Sub(b.r.start).Round(100*time.Millisecond)) / float64(time.Second),
-			Action: string(action), Reason: why, Probabilities: v.answers.Probabilities})
-		b.r.observe("watchdog", string(action)+": "+why)
-	}
-	switch action {
-	case watchdog.HangUp:
-		record()
-		return "watchdog_hang_up"
-	case watchdog.Close:
-		if b.wdGoodbye.IsZero() {
-			b.wdGoodbye = now
-			record()
-		}
-	case watchdog.WrapUp:
-		if !b.wdWrapAsked && !b.wrapSent {
-			b.wdWrapAsked = true
-			b.wrapDue, b.wrapCue, b.wrapRespond = true, b.r.vc.Prompt.Cues.Watchdog, true
-			record()
-		}
-	}
-	return ""
-}
-
-// watchdogDue carries out the watchdog's closes. After the agent's goodbye with no end_call, the
-// line drops once the agent is silent: the goodbye is said. When the conversation goes on after
-// its wrap-up cue (counted from when the cue went out), the call closes like at the time limit,
-// with the watchdog's own close cue, then the line drops.
-func (b *bridge) watchdogDue(now time.Time) string {
-	if b.closing() {
-		return ""
-	}
-	t := b.r.t
-	if !b.wdGoodbye.IsZero() && now.Sub(b.wdGoodbye) >= t.GoodbyeGrace && (b.silent(now) || now.Sub(b.wdGoodbye) >= t.EndMax) {
-		return "watchdog_close"
-	}
-	if !b.wdWrapAt.IsZero() && (b.wdCalleeAfterWrap >= 2 || now.Sub(b.wdWrapAt) >= t.WrapEscalation) {
-		b.overtimeAt, b.overtimeReason, b.finalCue = now, "watchdog_close", b.r.vc.Prompt.Cues.WatchdogClose
-		b.r.observe("watchdog", "close: the conversation went on after the wrap-up")
-	}
-	return ""
+	rep.Actions = append(rep.Actions, WatchdogAction{T: float64(now.Sub(b.r.start).Round(100*time.Millisecond)) / float64(time.Second),
+		Action: string(action), Reason: why, Probabilities: v.answers.Probabilities})
+	b.r.observe("watchdog", string(action)+": "+why)
+	return "watchdog_hang_up"
 }
 
 // closingDue applies the hang-up rules after end_call or report_outcome.

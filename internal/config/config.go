@@ -114,23 +114,21 @@ type Server struct {
 	MCPToken  string `yaml:"mcp_token"`  // the bearer token every HTTP request must carry
 }
 
-// Watchdog judges the call after every turn with a classifier on OpenRouter's Decisions API and
-// may end it sooner: wrap up, close after the agent's goodbye, or hang up.
+// Watchdog is a safety net: every few transcript lines a classifier on OpenRouter's Decisions API
+// judges whether the agent reached a voicemail or an automated menu, or the callee is hostile,
+// and the call is hung up.
 type Watchdog struct {
 	Enabled    bool               `yaml:"enabled"`
 	BaseURL    string             `yaml:"base_url"`
 	APIKey     string             `yaml:"api_key"`
 	Model      string             `yaml:"model"`
-	Timeout    time.Duration      `yaml:"timeout"` // a verdict later than this is dropped
+	Timeout    time.Duration      `yaml:"timeout"`     // a verdict later than this is dropped
+	CheckEvery int                `yaml:"check_every"` // transcript lines between checks (the first after two)
 	Thresholds WatchdogThresholds `yaml:"thresholds"`
 }
 
 type WatchdogThresholds struct {
-	HangUp   float64 `yaml:"hang_up"`   // voicemail_or_ivr or hostile
-	Close    float64 `yaml:"close"`     // agent_said_goodbye without end_call
-	WrapUp   float64 `yaml:"wrap_up"`   // objective_reached or callee_wants_to_end
-	OffTopic float64 `yaml:"off_topic"` // two checks in a row
-	Stuck    float64 `yaml:"stuck"`     // going in circles, two checks in a row
+	HangUp float64 `yaml:"hang_up"` // voicemail_or_ivr or hostile
 }
 
 type Policy struct {
@@ -175,7 +173,7 @@ func defaults() Config {
 		Storage: Storage{Enabled: true, SegmentSeconds: 60},
 		Server:  Server{MCPListen: ":8080"},
 		Watchdog: Watchdog{BaseURL: "https://openrouter.ai/api", Model: "openai/gpt-6-luna-decisions", Timeout: 3 * time.Second,
-			Thresholds: WatchdogThresholds{HangUp: 0.9, Close: 0.8, WrapUp: 0.8, OffTopic: 0.7, Stuck: 0.7}},
+			CheckEvery: 4, Thresholds: WatchdogThresholds{HangUp: 0.9}},
 		Policy: Policy{Source: "file", Mode: string(policy.ModeAllowlist), Countries: []string{"IT"}, DefaultCountry: "IT",
 			NumberTypes: []string{"fixed", "mobile"}, Hours: "09:00-21:00", Limits: Limits{
 				MaxMinutes: 5, RingSeconds: 25, PerHour: 6, PerDay: 20, PerNumberDay: 2,
@@ -362,11 +360,11 @@ func (c *Config) check(unset map[string][]string) error {
 		if w.Timeout <= 0 || w.Timeout > 30*time.Second {
 			errs = append(errs, errors.New("watchdog.timeout must be between 0 and 30s"))
 		}
-		for name, v := range map[string]float64{"hang_up": w.Thresholds.HangUp, "close": w.Thresholds.Close,
-			"wrap_up": w.Thresholds.WrapUp, "off_topic": w.Thresholds.OffTopic, "stuck": w.Thresholds.Stuck} {
-			if v <= 0 || v > 1 {
-				errs = append(errs, fmt.Errorf("watchdog.thresholds.%s must be above 0 and at most 1", name))
-			}
+		if w.CheckEvery < 1 || w.CheckEvery > 20 {
+			errs = append(errs, errors.New("watchdog.check_every must be between 1 and 20"))
+		}
+		if v := w.Thresholds.HangUp; v <= 0 || v > 1 {
+			errs = append(errs, errors.New("watchdog.thresholds.hang_up must be above 0 and at most 1"))
 		}
 	}
 

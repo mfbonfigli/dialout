@@ -35,8 +35,6 @@ type Timing struct {
 	Overtime        time.Duration // at the limit: time to answer the final cue before the line drops
 	Drain           time.Duration // after the hang-up: wait this long for Sonic's last transcripts
 	TimeLimitMargin time.Duration // Twilio's TimeLimit is the maximum plus this (a backstop, > Overtime)
-	GoodbyeGrace    time.Duration // the watchdog heard the agent's goodbye: wait this long for end_call
-	WrapEscalation  time.Duration // after the watchdog's wrap-up cue: close after this long
 	Tick            time.Duration
 }
 
@@ -53,8 +51,6 @@ func DefaultTiming() Timing {
 		Overtime:        10 * time.Second,
 		Drain:           5 * time.Second,
 		TimeLimitMargin: 15 * time.Second,
-		GoodbyeGrace:    3 * time.Second,
-		WrapEscalation:  20 * time.Second,
 		Tick:            100 * time.Millisecond,
 	}
 }
@@ -75,7 +71,7 @@ type Config struct {
 	Voice    string            // the engine's voice; its default when empty
 	Prompts  *prompts.Set      // the prompt file; the built-in one when nil
 	Location *time.Location    // the time zone of the date in the prompt; time.Local when nil
-	Watchdog *watchdog.Config  // judges the call after every turn and may end it sooner; nil: none
+	Watchdog *watchdog.Config  // hangs up on a voicemail, an automated menu or a hostile callee; nil: none
 	Notify   func(text string) // short progress notices, e.g. printed by the local command; nil: none
 	Observe  func(Event)       // live progress, e.g. printed by the local command; nil: none
 	Timing   Timing            // DefaultTiming() when zero

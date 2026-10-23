@@ -85,10 +85,10 @@ func Build(cfg *config.Config, opt Options) (*App, error) {
 
 	if w := cfg.Watchdog; w.Enabled {
 		a.Watchdog = &watchdog.Config{
-			Judge: &watchdog.Decisions{BaseURL: w.BaseURL, APIKey: w.APIKey, Model: w.Model},
-			Thresholds: watchdog.Thresholds{HangUp: w.Thresholds.HangUp, Close: w.Thresholds.Close,
-				WrapUp: w.Thresholds.WrapUp, OffTopic: w.Thresholds.OffTopic, Stuck: w.Thresholds.Stuck},
-			Timeout: w.Timeout,
+			Judge:      &watchdog.Decisions{BaseURL: w.BaseURL, APIKey: w.APIKey, Model: w.Model},
+			Thresholds: watchdog.Thresholds{HangUp: w.Thresholds.HangUp},
+			Every:      w.CheckEvery,
+			Timeout:    w.Timeout,
 		}
 	}
 

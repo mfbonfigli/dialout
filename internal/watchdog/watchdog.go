@@ -1,8 +1,8 @@
-// Package watchdog judges a call while it runs. After every turn a classifier reads the brief and
-// the transcript so far and answers yes/no questions with probabilities (objective reached? the
-// agent said goodbye? voicemail?). Fixed rules turn those numbers into one of three actions, which
-// the call engine carries out itself: wrap up, close, hang up. The voice model doesn't have to
-// cooperate, and the watchdog can only end a call sooner, never prolong it.
+// Package watchdog is a safety net for calls. Every few transcript lines a classifier reads the
+// brief and the transcript so far and answers two yes/no questions with probabilities: is the
+// agent talking to a voicemail or an automated menu, is the other person hostile? Above the
+// threshold the call engine hangs up. The voice model doesn't have to cooperate, and the watchdog
+// can only end a call sooner, never prolong it. It doesn't manage the conversation.
 package watchdog
 
 import (
@@ -22,6 +22,7 @@ import (
 type Config struct {
 	Judge      Judge
 	Thresholds Thresholds
+	Every      int           // a check every this many transcript lines (the first after two)
 	Timeout    time.Duration // a verdict later than this is dropped
 }
 
@@ -65,58 +66,31 @@ type Action string
 
 const (
 	None   Action = ""
-	WrapUp Action = "wrap_up" // cue the agent to say goodbye and close
-	Close  Action = "close"   // the agent said goodbye: close now if end_call doesn't follow
 	HangUp Action = "hang_up" // drop the line at once
 )
 
 // Thresholds are the probabilities above which the rules act.
 type Thresholds struct {
-	HangUp   float64 // voicemail_or_ivr or hostile
-	Close    float64 // agent_said_goodbye
-	WrapUp   float64 // objective_reached or callee_wants_to_end
-	OffTopic float64 // off_topic, two checks in a row, once the objective is likely reached
-	Stuck    float64 // stuck, two checks in a row
+	HangUp float64 // voicemail_or_ivr or hostile
 }
 
 // DefaultThresholds are the thresholds when the configuration sets none.
-var DefaultThresholds = Thresholds{HangUp: 0.9, Close: 0.8, WrapUp: 0.8, OffTopic: 0.7, Stuck: 0.7}
+var DefaultThresholds = Thresholds{HangUp: 0.9}
 
-// Rules turn answers into actions. They keep the off-topic streak, so use one per call.
+// DefaultEvery is how many transcript lines go between two checks by default.
+const DefaultEvery = 4
+
+// Rules turn answers into actions.
 type Rules struct {
-	T               Thresholds
-	offTopic, stuck int
+	T Thresholds
 }
 
-// Decide returns the action for one set of answers and why, the strongest first: hang up, close,
-// wrap up.
+// Decide returns the action for one set of answers and why.
 func (r *Rules) Decide(p map[string]float64) (Action, string) {
-	why := func(q string) string { return fmt.Sprintf("%s %.2f", q, p[q]) }
-	streak := func(n *int, q string, t float64) {
-		if p[q] >= t {
-			*n++
-		} else {
-			*n = 0
+	for _, q := range []string{prompts.QVoicemail, prompts.QHostile} {
+		if p[q] >= r.T.HangUp {
+			return HangUp, fmt.Sprintf("%s %.2f", q, p[q])
 		}
-	}
-	streak(&r.offTopic, prompts.QOffTopic, r.T.OffTopic)
-	streak(&r.stuck, prompts.QStuck, r.T.Stuck)
-	switch {
-	case p[prompts.QVoicemail] >= r.T.HangUp:
-		return HangUp, why(prompts.QVoicemail)
-	case p[prompts.QHostile] >= r.T.HangUp:
-		return HangUp, why(prompts.QHostile)
-	case p[prompts.QAgentGoodbye] >= r.T.Close:
-		return Close, why(prompts.QAgentGoodbye)
-	case p[prompts.QObjectiveReached] >= r.T.WrapUp:
-		return WrapUp, why(prompts.QObjectiveReached)
-	case p[prompts.QCalleeWantsToEnd] >= r.T.WrapUp:
-		return WrapUp, why(prompts.QCalleeWantsToEnd)
-	case r.stuck >= 2:
-		return WrapUp, why(prompts.QStuck) + ", twice in a row"
-	case r.offTopic >= 2 && p[prompts.QObjectiveReached] >= 0.5:
-		// Asides while the work is still going on are normal; chatter after it's done isn't.
-		return WrapUp, why(prompts.QOffTopic) + ", twice in a row, " + why(prompts.QObjectiveReached)
 	}
 	return None, ""
 }

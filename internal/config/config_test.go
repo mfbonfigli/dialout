@@ -129,7 +129,9 @@ func TestErrors(t *testing.T) {
 		"listed abroad":         {strings.Replace(base, "enabled: true", "enabled: true\n  countries: [IE]", 1), "country not allowed: IT"},
 		"audio without storage": {strings.Replace(base, "record_audio: true", "record_audio: true\n  enabled: false", 1), "storage.record_audio needs storage.enabled"},
 		"watchdog key":          {base + "watchdog:\n  enabled: true\n", "watchdog.api_key is empty"},
-		"watchdog threshold":    {base + "watchdog:\n  enabled: true\n  api_key: k\n  thresholds: {close: 1.5}\n", "watchdog.thresholds.close"},
+		"watchdog threshold":    {base + "watchdog:\n  enabled: true\n  api_key: k\n  thresholds: {hang_up: 1.5}\n", "watchdog.thresholds.hang_up"},
+		"watchdog every":        {base + "watchdog:\n  enabled: true\n  api_key: k\n  check_every: 0\n", "watchdog.check_every"},
+		"watchdog removed key":  {base + "watchdog:\n  enabled: true\n  api_key: k\n  thresholds: {wrap_up: 0.8}\n", "wrap_up"},
 		"watchdog timeout":      {base + "watchdog:\n  enabled: true\n  api_key: k\n  timeout: 1m\n", "watchdog.timeout"},
 		"per number":            {strings.Replace(base, "per_hour: 0", "per_number_per_day: -1", 1), "per_number_per_day"},
 	} {
@@ -171,14 +173,14 @@ func TestWatchdogConfig(t *testing.T) {
 	t.Setenv("T_TOKEN", "x")
 	t.Setenv("OR_KEY", "or-key")
 	text := strings.Replace(sample, "prompt:\n  file: prompt.tmpl\n", "", 1) +
-		"watchdog:\n  enabled: true\n  api_key: ${OR_KEY}\n  timeout: 2500ms\n  thresholds: {wrap_up: 0.85}\n"
+		"watchdog:\n  enabled: true\n  api_key: ${OR_KEY}\n  timeout: 2500ms\n  check_every: 6\n  thresholds: {hang_up: 0.95}\n"
 	c, err := Parse([]byte(text), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	w := c.Watchdog
 	if !w.Enabled || w.APIKey != "or-key" || w.Model != "openai/gpt-6-luna-decisions" || w.BaseURL != "https://openrouter.ai/api" ||
-		w.Timeout != 2500*time.Millisecond || w.Thresholds.WrapUp != 0.85 || w.Thresholds.HangUp != 0.9 || w.Thresholds.Close != 0.8 {
+		w.Timeout != 2500*time.Millisecond || w.CheckEvery != 6 || w.Thresholds.HangUp != 0.95 {
 		t.Errorf("watchdog = %+v", w)
 	}
 }

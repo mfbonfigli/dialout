@@ -20,8 +20,10 @@ type Config struct {
 	Prompts *prompts.Set  // the prompt file; the built-in one when nil
 	Now     time.Time     // the call's start, in the configured time zone; now when zero
 
-	// Prompt is the rendered prompt: Prepare fills it, and the call engine takes its cues from it.
-	Prompt *prompts.Rendered
+	// Prompt is the rendered prompt and Closing how the engine ends a call: Prepare fills them,
+	// and the call engine takes its cues and closing rules from them.
+	Prompt  *prompts.Rendered
+	Closing prompts.Closing
 }
 
 // Render renders the prompt for an engine that closes calls in the given way and whose voice has
@@ -35,7 +37,7 @@ func (c Config) Render(closing prompts.Closing, female bool) (Config, error) {
 	if err != nil {
 		return c, err
 	}
-	c.Prompt = r
+	c.Prompt, c.Closing = r, closing
 	return c, nil
 }
 

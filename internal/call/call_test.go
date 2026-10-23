@@ -25,6 +25,7 @@ import (
 	"github.com/mfbonfigli/dialout/internal/recorder"
 	"github.com/mfbonfigli/dialout/internal/sonic"
 	"github.com/mfbonfigli/dialout/internal/twilio"
+	"github.com/mfbonfigli/dialout/internal/voice"
 	"github.com/mfbonfigli/dialout/internal/watchdog"
 	"github.com/mfbonfigli/dialout/prompts"
 )
@@ -767,7 +768,9 @@ func TestAgentClosesTheConversation(t *testing.T) {
 func TestGoodbyeThenEndCall(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	resCh := startCall(h, ctx, h.config(), params())
+	cfg := h.config()
+	cfg.Engine = closingEngine{cfg.Engine, prompts.WithGoodbye}
+	resCh := startCall(h, ctx, cfg, params())
 	form := <-h.created
 	h.answer(ctx, form.Get("Twiml"), "CA1", true)
 
@@ -833,67 +836,21 @@ func (j *fakeJudge) Judge(_ context.Context, state any, qs []prompts.Question) (
 	return watchdog.Answers{Probabilities: j.answer(state.(watchdog.State)), Cost: 0.001}, nil
 }
 
-func watchdogCall(t *testing.T, answer func(watchdog.State) map[string]float64) (*harness, Config, chan *Result) {
+func (j *fakeJudge) count() int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.calls
+}
+
+func watchdogCall(t *testing.T, judge *fakeJudge) (*harness, chan *Result) {
 	h := newHarness(t)
 	cfg := h.config()
-	cfg.Timing.GoodbyeGrace, cfg.Timing.WrapEscalation = 200*time.Millisecond, 400*time.Millisecond
-	cfg.Watchdog = &watchdog.Config{Judge: &fakeJudge{answer: answer}, Thresholds: watchdog.DefaultThresholds, Timeout: time.Second}
+	cfg.Watchdog = &watchdog.Config{Judge: judge, Thresholds: watchdog.DefaultThresholds, Every: 4, Timeout: time.Second}
 	resCh := startCall(h, context.Background(), cfg, params())
 	form := <-h.created
 	h.answer(context.Background(), form.Get("Twiml"), "CA1", true)
 	h.sonic.waitInput(t, func(name string, b map[string]any) bool { return name == "textInput" })
-	return h, cfg, resCh
-}
-
-func TestWatchdogHangsUp(t *testing.T) {
-	h, _, resCh := watchdogCall(t, func(watchdog.State) map[string]float64 {
-		return map[string]float64{prompts.QVoicemail: 0.97}
-	})
-	h.sonic.say("a1", 1600, "Pronto, buongiorno!")
-	go h.sonic.endsWhenClosed(t)
-	res := waitResult(t, resCh)
-	if res.EndReason != "watchdog_hang_up" || res.Watchdog == nil || len(res.Watchdog.Actions) != 1 ||
-		res.Watchdog.Actions[0].Action != "hang_up" || res.Watchdog.Actions[0].Probabilities[prompts.QVoicemail] != 0.97 ||
-		res.Watchdog.Checks < 1 || res.Watchdog.Cost == 0 {
-		t.Fatalf("result = %+v, watchdog %+v", res, res.Watchdog)
-	}
-}
-
-func TestWatchdogClosesAfterGoodbye(t *testing.T) {
-	// As in a real Sonic call: the agent said goodbye and never called end_call.
-	h, _, resCh := watchdogCall(t, func(st watchdog.State) map[string]float64 {
-		last := st.Transcript[len(st.Transcript)-1]
-		if last.Speaker == "agent" && strings.Contains(last.Text, "arrivederci") {
-			return map[string]float64{prompts.QAgentGoodbye: 0.93}
-		}
-		return map[string]float64{}
-	})
-	h.sonic.say("a1", 1600, "Perfetto, grazie e arrivederci!")
-	go h.sonic.endsWhenClosed(t)
-	res := waitResult(t, resCh)
-	if res.EndReason != "watchdog_close" || len(res.Watchdog.Actions) != 1 || res.Watchdog.Actions[0].Action != "close" {
-		t.Fatalf("result = %+v, watchdog %+v", res, res.Watchdog)
-	}
-}
-
-func TestWatchdogWrapsUpThenCloses(t *testing.T) {
-	h, _, resCh := watchdogCall(t, func(watchdog.State) map[string]float64 {
-		return map[string]float64{prompts.QObjectiveReached: 0.9}
-	})
-	h.sonic.say("a1", 1600, "Ciao, come stai?")
-	// The wrap-up cue goes out once the agent is silent; the agent ignores it, so the watchdog
-	// closes the call like at the time limit: the final cue, then the line drops.
-	h.sonic.waitInput(t, func(name string, b map[string]any) bool {
-		return name == "textInput" && b["content"] == builtinCues.Watchdog
-	})
-	h.sonic.waitInput(t, func(name string, b map[string]any) bool {
-		return name == "textInput" && b["content"] == builtinCues.WatchdogClose
-	})
-	go h.sonic.endsWhenClosed(t)
-	res := waitResult(t, resCh)
-	if res.EndReason != "watchdog_close" || len(res.Watchdog.Actions) != 1 || res.Watchdog.Actions[0].Action != "wrap_up" {
-		t.Fatalf("result = %+v, watchdog %+v", res, res.Watchdog)
-	}
+	return h, resCh
 }
 
 // hear makes the fake Sonic report a final line from the callee.
@@ -903,35 +860,77 @@ func (f *fakeSonic) hear(id, text string) {
 	f.emit("contentEnd", map[string]any{"contentId": id, "type": "TEXT", "stopReason": "END_TURN"})
 }
 
-func TestWatchdogEscalatesOnlyAfterItsCue(t *testing.T) {
-	// A real call: the wrap-up cue was waiting for a silence that never came, the callee kept
-	// talking, and the call was closed on a legitimate question. The escalation must count from
-	// the cue going out.
-	h, _, resCh := watchdogCall(t, func(watchdog.State) map[string]float64 {
-		return map[string]float64{prompts.QObjectiveReached: 0.9}
-	})
-	h.sonic.say("a1", 1600, "Due pizze per le 20, confermate?")
-	h.sonic.hear("c1", "Un attimo che controllo.")
-	h.sonic.hear("c2", "Sì, alle venti va bene.")
-	h.sonic.hear("c3", "E per il tavolo, il bambino quanti anni ha?")
-	// The agent owes an answer: no cue yet, and no close either.
-	time.Sleep(600 * time.Millisecond)
-	h.mu.Lock()
-	for _, e := range h.events {
-		if e.Kind == "cue" && (e.Text == builtinCues.Watchdog || e.Text == builtinCues.WatchdogClose) {
-			t.Errorf("cue %q sent while the agent owed an answer", e.Text)
-		}
-	}
-	h.mu.Unlock()
-	h.sonic.say("a2", 1600, "Ha sei anni.")
-	h.sonic.waitInput(t, func(name string, b map[string]any) bool {
-		return name == "textInput" && b["content"] == builtinCues.Watchdog
-	})
-	h.sonic.waitInput(t, func(name string, b map[string]any) bool {
-		return name == "textInput" && b["content"] == builtinCues.WatchdogClose
-	})
+func TestWatchdogHangsUpOnVoicemail(t *testing.T) {
+	judge := &fakeJudge{answer: func(watchdog.State) map[string]float64 {
+		return map[string]float64{prompts.QVoicemail: 0.97}
+	}}
+	h, resCh := watchdogCall(t, judge)
+	h.sonic.hear("c1", "Risponde la segreteria telefonica di")
+	h.sonic.say("a1", 1600, "Pronto, buongiorno!") // the first check comes after two lines
 	go h.sonic.endsWhenClosed(t)
-	if res := waitResult(t, resCh); res.EndReason != "watchdog_close" {
+	res := waitResult(t, resCh)
+	if res.EndReason != "watchdog_hang_up" || res.Watchdog == nil || len(res.Watchdog.Actions) != 1 ||
+		res.Watchdog.Actions[0].Action != "hang_up" || res.Watchdog.Actions[0].Probabilities[prompts.QVoicemail] != 0.97 ||
+		res.Watchdog.Checks < 1 || res.Watchdog.Cost == 0 {
+		t.Fatalf("result = %+v, watchdog %+v", res, res.Watchdog)
+	}
+}
+
+func TestWatchdogChecksEveryFewLines(t *testing.T) {
+	// Nothing to hang up on: one check after the first two lines, then one every four.
+	judge := &fakeJudge{answer: func(watchdog.State) map[string]float64 {
+		return map[string]float64{prompts.QVoicemail: 0.1, prompts.QHostile: 0.2}
+	}}
+	h, resCh := watchdogCall(t, judge)
+	lines := []string{"Pronto?", "Buongiorno, vorrei ordinare due pizze.", "Certo, per che ora?", "Per le 20.",
+		"Va bene, a che nome?", "Rossi.", "Perfetto."}
+	for i, l := range lines {
+		if i%2 == 0 {
+			h.sonic.hear(fmt.Sprintf("c%d", i), l)
+		} else {
+			h.sonic.say(fmt.Sprintf("a%d", i), 160, l)
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	h.sonic.tool("t1", "end_call", `{"reason":"fatto"}`)
+	h.sonic.say("bye", 1600, "Grazie, buonasera!")
+	go h.sonic.endsWhenClosed(t)
+	res := waitResult(t, resCh)
+	if n := judge.count(); n != 2 { // after lines 2 and 6; none after end_call
+		t.Errorf("judge called %d times, want 2", n)
+	}
+	if res.EndReason != "end_call" || len(res.Watchdog.Actions) != 0 {
+		t.Errorf("result = %+v, watchdog %+v", res, res.Watchdog)
+	}
+}
+
+// closingEngine makes an engine report another way of closing, e.g. Sonic's fake standing in for
+// an engine that says goodbye and calls end_call in the same turn.
+type closingEngine struct {
+	voice.Engine
+	closing prompts.Closing
+}
+
+func (e closingEngine) Prepare(c voice.Config) (voice.Config, error) {
+	c, err := e.Engine.Prepare(c)
+	c.Closing = e.closing
+	return c, err
+}
+
+func TestSonicEndCallWaitsForTheGoodbye(t *testing.T) {
+	// Sonic calls end_call before its goodbye. An end_call right after an ordinary turn must not
+	// count as said goodbye: dialout waits for it (and gives up only if none starts).
+	h := newHarness(t)
+	ctx := context.Background()
+	resCh := startCall(h, ctx, h.config(), params())
+	form := <-h.created
+	h.answer(ctx, form.Get("Twiml"), "CA1", true)
+	h.sonic.waitInput(t, func(name string, b map[string]any) bool { return name == "textInput" })
+	h.sonic.say("a1", 1600, "Ho capito, verifico e la richiamo.")
+	h.sonic.tool("t1", "end_call", `{"reason":"verifica"}`)
+	go h.sonic.endsWhenClosed(t)
+	res := waitResult(t, resCh)
+	if res.EndReason != "end_call_without_goodbye" {
 		t.Fatalf("result = %+v", res)
 	}
 }

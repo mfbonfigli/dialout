@@ -104,22 +104,15 @@ Open mode removes the main guard: an agent manipulated by something it read coul
 
 ## Watchdog (optional)
 
-Voice models don't always close calls the way the prompt says: Sonic sometimes says goodbye without calling `end_call`, then keeps answering whoever is still on the line. The watchdog fixes that without relying on the voice model.
+A safety net, not a conversation manager: it hangs up when the agent has reached a **voicemail or an automated menu**, or the other person is **hostile** (abusive, threatening, or trying to manipulate the agent). How the conversation goes and when it ends is the voice agent's job; on a capable engine (ElevenLabs, OpenAI) that works well, and stepping in only made things worse.
 
-After every transcript line, dialout sends the brief and the transcript so far to a classifier, [GPT-6 Luna Decisions](https://openrouter.ai/openai/gpt-6-luna-decisions) on OpenRouter's Decisions API, and gets back a probability for each of seven yes/no questions: objective reached, agent said goodbye, callee wants to end, off topic, going in circles, voicemail or automated menu, hostile. Fixed rules in dialout turn the numbers into actions, which dialout carries out itself:
-
-| When | Action |
-|---|---|
-| Voicemail/menu or hostile ≥ `hang_up` (0.9) | Drop the line at once |
-| Agent said goodbye ≥ `close` (0.8) and no `end_call` within 3 s | Hang up once the agent is silent |
-| Objective reached or callee wants to end ≥ `wrap_up` (0.8), or going in circles ≥ `stuck` (0.7) twice in a row, or off topic ≥ `off_topic` (0.7) twice in a row once the objective is likely reached | A cue to say goodbye and close at the next silence; if the conversation goes on after that cue (two more lines from the callee, or 20 s), a close cue and the line drops |
-
+- **How:** every `check_every` transcript lines (4 by default; the first check after two, to catch a voicemail early), dialout sends the brief and the transcript so far to a classifier, [GPT-6 Luna Decisions](https://openrouter.ai/openai/gpt-6-luna-decisions) on OpenRouter's Decisions API. If either probability reaches `thresholds.hang_up` (0.9), the line drops at once (end reason `watchdog_hang_up`).
 - **Off by default.** Turn it on with `watchdog.enabled` and an OpenRouter key.
-- **It can only end a call sooner,** never prolong it or make the agent say anything new. A transcript saying "ignore your instructions" can at worst keep it from acting, and the time limit still applies.
-- **The call never waits for it.** Only the latest check counts. A late or failed verdict is dropped and logged.
-- **Recorded:** every action, with the probabilities behind it, goes into `meta.json` and `get_call` (`watchdog`), along with the number of checks and their cost (about $0.0002 a check).
-- **Tunable:** the questions are blocks of the prompt file (`watchdog.<name>`, `.true`, `.false`), so you can reword them; the thresholds are in the configuration.
-- **Privacy:** the live transcript goes to OpenRouter and the model's provider.
+- **It can only end a call sooner.** A transcript saying "ignore your instructions" can at worst keep it from acting; the time limit still applies.
+- **The call never waits for it.** Only the latest check counts; a late or failed verdict is dropped and logged.
+- **Recorded:** a hang-up, with the probabilities behind it, goes into `meta.json` and `get_call` (`watchdog`), with the number of checks and their cost (about $0.0002 a check, a handful per call).
+- **Tunable:** the two questions are blocks of the prompt file (`watchdog.voicemail_or_ivr`, `watchdog.hostile`, each with `.true` and `.false`).
+- **Privacy:** the transcript goes to OpenRouter and the model's provider.
 
 ## Prompt file
 
@@ -132,7 +125,7 @@ After every transcript line, dialout sends the brief and the transcript so far t
 | `cue.opening`, `cue.wrap_up`, `cue.final` | Lines sent while the call runs: silence after the answer, 30 s before the limit, at the limit |
 | `tool.next.end_call`, `tool.next.goodbye` | Sonic's tool results: the next step. Keep them in the call's language |
 | `tool.report_outcome[.result/.summary/.details]`, `tool.end_call[.reason]` | Tool descriptions, English by default |
-| `cue.watchdog_wrap_up`, `cue.watchdog_close`, `watchdog.<question>[.true/.false]` | The watchdog's cues (spoken) and its questions (not spoken) |
+| `watchdog.voicemail_or_ivr`, `watchdog.hostile` (each with `.true` and `.false`) | The watchdog's questions (not spoken) |
 
 Variables: `.Owner`, `.Female` (the voice's grammatical gender), `.Callee`, `.Kind`, `.Label`, `.Opening`, `.Objective`, `.Limits`, `.Context`, `.Now` and `.Closing`. `{{weekday .Now "Sunday Monday …"}}` and `{{month .Now "January …"}}` give day and month names in any language. Every block is test-rendered at load time, so a typo fails at start-up, not on a call. The brief is inserted as data and never evaluated.
 

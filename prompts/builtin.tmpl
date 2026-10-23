@@ -66,34 +66,11 @@ Quando l'obiettivo è raggiunto o non si può raggiungere, chiudi: se avete conc
 
 {{define "tool.end_call.reason"}}Why you are ending the call, in a few words.{{end}}
 
-{{define "cue.watchdog_wrap_up"}}[Concludi ora: saluta brevemente e chiudi la chiamata.]{{end}}
-
-{{define "cue.watchdog_close"}}[Ora saluta e chiudi la chiamata.]{{end}}
-
 {{/*
-The watchdog's questions (watchdog.enabled): a classifier reads the brief and the transcript after
-every turn and answers each with a probability. Never spoken, so in English.
+The watchdog's questions (watchdog.enabled): a classifier reads the brief and the transcript every
+few lines and answers each with a probability; above the threshold the call is hung up. Never
+spoken, so in English.
 */}}
-
-{{define "watchdog.objective_reached"}}Looking at the whole transcript: has the agent's objective been achieved, or has it become clear that it can't be achieved in this call?{{end}}
-{{define "watchdog.objective_reached.true"}}Achieved, or clearly impossible in this call{{end}}
-{{define "watchdog.objective_reached.false"}}Still open{{end}}
-
-{{define "watchdog.agent_said_goodbye"}}Did the agent's most recent turn say goodbye, or announce that it is ending the call?{{end}}
-{{define "watchdog.agent_said_goodbye.true"}}The agent said goodbye or said it is ending the call{{end}}
-{{define "watchdog.agent_said_goodbye.false"}}It did not{{end}}
-
-{{define "watchdog.callee_wants_to_end"}}Does the other person want to end the call: they said goodbye, said they have to go, or asked to stop?{{end}}
-{{define "watchdog.callee_wants_to_end.true"}}They want to end the call{{end}}
-{{define "watchdog.callee_wants_to_end.false"}}They don't{{end}}
-
-{{define "watchdog.off_topic"}}In the last few turns, has the conversation moved away from the agent's objective, to topics that don't help achieve it? Details the other person needs to fulfil the request (an address, a name, a time, a phone number, pickup or delivery) are on topic, and so is a short greeting or courtesy.{{end}}
-{{define "watchdog.off_topic.true"}}Off topic{{end}}
-{{define "watchdog.off_topic.false"}}On topic, or a normal courtesy{{end}}
-
-{{define "watchdog.stuck"}}Is the conversation going in circles: the same question, request or refusal repeated without progress toward the objective?{{end}}
-{{define "watchdog.stuck.true"}}Going in circles{{end}}
-{{define "watchdog.stuck.false"}}Making progress, or just started{{end}}
 
 {{define "watchdog.voicemail_or_ivr"}}Is the agent talking to a voicemail, an answering machine or an automated menu rather than a person?{{end}}
 {{define "watchdog.voicemail_or_ivr.true"}}A voicemail, answering machine or automated menu{{end}}

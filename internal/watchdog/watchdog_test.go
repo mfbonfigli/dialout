@@ -34,7 +34,7 @@ func TestDecisions(t *testing.T) {
 		for name := range got["questions"].(map[string]any) {
 			answers[name] = map[string]any{"type": "noul", "noul": 0.25}
 		}
-		answers["off_topic"] = map[string]any{"type": "noul", "noul": 0.91}
+		answers["hostile"] = map[string]any{"type": "noul", "noul": 0.91}
 		json.NewEncoder(w).Encode(map[string]any{"model": "m", "answers": answers, "usage": map[string]any{"cost": 0.0002}})
 	}))
 	defer srv.Close()
@@ -46,12 +46,12 @@ func TestDecisions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(a.Probabilities) != 7 || a.Probabilities["off_topic"] != 0.91 || a.Probabilities["hostile"] != 0.25 || a.Cost != 0.0002 {
+	if len(a.Probabilities) != 2 || a.Probabilities["hostile"] != 0.91 || a.Probabilities["voicemail_or_ivr"] != 0.25 || a.Cost != 0.0002 {
 		t.Errorf("answers = %+v", a)
 	}
 	// The request: the model, the state as given, every question as a yes/no with its criteria.
-	q := got["questions"].(map[string]any)["agent_said_goodbye"].(map[string]any)
-	if got["model"] != "openai/gpt-6-luna-decisions" || q["type"] != "noul" || !strings.Contains(q["instructions"].(string), "goodbye") ||
+	q := got["questions"].(map[string]any)["voicemail_or_ivr"].(map[string]any)
+	if got["model"] != "openai/gpt-6-luna-decisions" || q["type"] != "noul" || !strings.Contains(q["instructions"].(string), "voicemail") ||
 		q["criteria"].(map[string]any)["true"] == "" || got["state"].(map[string]any)["objective"] != "Chiedi come sta." {
 		t.Errorf("request = %v", got)
 	}
@@ -62,7 +62,7 @@ func TestDecisions(t *testing.T) {
 		t.Errorf("bad key: %v", err)
 	}
 	missing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"answers":{"objective_reached":{"type":"noul","noul":0.1}}}`))
+		w.Write([]byte(`{"answers":{"voicemail_or_ivr":{"type":"noul","noul":0.1}}}`))
 	}))
 	defer missing.Close()
 	d = &Decisions{BaseURL: missing.URL, APIKey: "key", Model: "m"}
@@ -72,58 +72,20 @@ func TestDecisions(t *testing.T) {
 }
 
 func TestRules(t *testing.T) {
-	p := func(kv ...any) map[string]float64 {
-		m := map[string]float64{}
-		for i := 0; i < len(kv); i += 2 {
-			m[kv[i].(string)] = kv[i+1].(float64)
-		}
-		return m
-	}
+	r := &Rules{T: DefaultThresholds}
 	for _, c := range []struct {
 		name string
 		p    map[string]float64
 		want Action
 	}{
-		{"nothing", p("objective_reached", 0.3, "off_topic", 0.2), None},
-		{"voicemail", p("voicemail_or_ivr", 0.95, "agent_said_goodbye", 0.9), HangUp},
-		{"hostile", p("hostile", 0.92), HangUp},
-		{"almost hostile", p("hostile", 0.85), None},
-		{"goodbye beats wrap up", p("agent_said_goodbye", 0.81, "objective_reached", 0.99), Close},
-		{"objective", p("objective_reached", 0.8), WrapUp},
-		{"callee wants to end", p("callee_wants_to_end", 0.9), WrapUp},
+		{"nothing", map[string]float64{"voicemail_or_ivr": 0.3, "hostile": 0.2}, None},
+		{"voicemail", map[string]float64{"voicemail_or_ivr": 0.95}, HangUp},
+		{"hostile", map[string]float64{"hostile": 0.92}, HangUp},
+		{"almost hostile", map[string]float64{"hostile": 0.85}, None},
+		{"missing answers", map[string]float64{}, None},
 	} {
-		r := &Rules{T: DefaultThresholds}
-		if got, why := r.Decide(c.p); got != c.want {
+		if got, why := r.Decide(c.p); got != c.want || (got == HangUp && why == "") {
 			t.Errorf("%s: %q (%s), want %q", c.name, got, why, c.want)
 		}
-	}
-
-	// Off topic acts on the second check in a row.
-	r := &Rules{T: DefaultThresholds}
-	if a, _ := r.Decide(p("off_topic", 0.75)); a != None {
-		t.Errorf("first off-topic check: %q", a)
-	}
-	if a, why := r.Decide(p("off_topic", 0.8, "objective_reached", 0.6)); a != WrapUp || !strings.Contains(why, "twice") {
-		t.Errorf("second off-topic check: %q %s", a, why)
-	}
-	// While the objective is still open, asides don't wrap up the call.
-	r = &Rules{T: DefaultThresholds}
-	r.Decide(p("off_topic", 0.9))
-	if a, why := r.Decide(p("off_topic", 0.94, "objective_reached", 0.3)); a != None {
-		t.Errorf("off topic with the objective open: %q %s", a, why)
-	}
-	r = &Rules{T: DefaultThresholds}
-	r.Decide(p("off_topic", 0.8, "objective_reached", 0.6))
-	r.Decide(p("off_topic", 0.1, "objective_reached", 0.6))
-	if a, _ := r.Decide(p("off_topic", 0.8, "objective_reached", 0.6)); a != None {
-		t.Errorf("streak not reset: %q", a)
-	}
-	// Going in circles, the same way.
-	r = &Rules{T: DefaultThresholds}
-	if a, _ := r.Decide(p("stuck", 0.8)); a != None {
-		t.Errorf("first stuck check: %q", a)
-	}
-	if a, why := r.Decide(p("stuck", 0.75, "off_topic", 0.1)); a != WrapUp || !strings.Contains(why, "stuck") {
-		t.Errorf("second stuck check: %q %s", a, why)
 	}
 }

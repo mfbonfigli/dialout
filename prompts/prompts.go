@@ -43,30 +43,23 @@ const (
 	BlockDetails          = "tool.report_outcome.details"
 	BlockEndCall          = "tool.end_call"
 	BlockReason           = "tool.end_call.reason"
-	BlockCueWatchdog      = "cue.watchdog_wrap_up"
-	BlockCueWatchdogClose = "cue.watchdog_close"
 )
 
 // The watchdog's questions. Each has three blocks: "watchdog.<name>" (the question) and
 // "watchdog.<name>.true" / ".false" (what yes and no mean).
 const (
-	QObjectiveReached = "objective_reached"
-	QAgentGoodbye     = "agent_said_goodbye"
-	QCalleeWantsToEnd = "callee_wants_to_end"
-	QOffTopic         = "off_topic"
-	QStuck            = "stuck"
-	QVoicemail        = "voicemail_or_ivr"
-	QHostile          = "hostile"
+	QVoicemail = "voicemail_or_ivr"
+	QHostile   = "hostile"
 )
 
-// WatchdogQuestions are the questions the watchdog asks after every turn, in order.
-var WatchdogQuestions = []string{QObjectiveReached, QAgentGoodbye, QCalleeWantsToEnd, QOffTopic, QStuck, QVoicemail, QHostile}
+// WatchdogQuestions are the questions the watchdog asks, in order.
+var WatchdogQuestions = []string{QVoicemail, QHostile}
 
 var blocks = func() []string {
 	b := []string{
 		BlockSystem, BlockToolsThenGoodbye, BlockWithGoodbye, BlockCueOpening, BlockCueWrapUp, BlockCueFinal,
 		BlockNextEndCall, BlockNextGoodbye, BlockReportOutcome, BlockResult, BlockSummary, BlockDetails,
-		BlockEndCall, BlockReason, BlockCueWatchdog, BlockCueWatchdogClose,
+		BlockEndCall, BlockReason,
 	}
 	for _, q := range WatchdogQuestions {
 		b = append(b, "watchdog."+q, "watchdog."+q+".true", "watchdog."+q+".false")
@@ -130,11 +123,9 @@ type Rendered struct {
 
 // Cues are the lines the call engine sends while the call runs.
 type Cues struct {
-	Opening       string // the callee stays silent after answering
-	WrapUp        string // 30 seconds before the time limit
-	Final         string // at the time limit
-	Watchdog      string // the watchdog decided the call should wrap up
-	WatchdogClose string // the conversation went on after that: close now
+	Opening string // the callee stays silent after answering
+	WrapUp  string // 30 seconds before the time limit
+	Final   string // at the time limit
 }
 
 // Question is one of the watchdog's yes/no questions.
@@ -324,9 +315,8 @@ func (s *Set) Render(c Closing, v Vars) (*Rendered, error) {
 	v.Closing = exec(closing, false)
 	r := &Rendered{
 		System: exec(BlockSystem, false),
-		Cues: Cues{Opening: exec(BlockCueOpening, true), WrapUp: exec(BlockCueWrapUp, true), Final: exec(BlockCueFinal, true),
-			Watchdog: exec(BlockCueWatchdog, true), WatchdogClose: exec(BlockCueWatchdogClose, true)},
-		Hints: Hints{EndCall: exec(BlockNextEndCall, true), Goodbye: exec(BlockNextGoodbye, true)},
+		Cues:   Cues{Opening: exec(BlockCueOpening, true), WrapUp: exec(BlockCueWrapUp, true), Final: exec(BlockCueFinal, true)},
+		Hints:  Hints{EndCall: exec(BlockNextEndCall, true), Goodbye: exec(BlockNextGoodbye, true)},
 		Tools: ToolTexts{
 			ReportOutcome: exec(BlockReportOutcome, false), Result: exec(BlockResult, false),
 			Summary: exec(BlockSummary, false), Details: exec(BlockDetails, false),
