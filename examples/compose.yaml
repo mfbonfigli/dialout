@@ -1,0 +1,25 @@
+# dialout with Docker Compose, MCP for clients on this machine only.
+#   mkdir config secrets
+#   cp examples/dialout.example.yaml config/dialout.yaml        # set secrets_file: /run/secrets/dialout.env
+#   cp examples/secrets.env.example secrets/dialout.env         # fill in, with DIALOUT_MCP_TOKEN
+#   docker compose -f examples/compose.yaml up -d
+# MCP clients connect to http://127.0.0.1:8080/mcp with "Authorization: Bearer <DIALOUT_MCP_TOKEN>".
+services:
+  dialout:
+    image: ghcr.io/mfbonfigli/dialout:latest   # pin by digest for real use
+    init: true                                 # reaps cloudflared
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 160m
+    pids_limit: 128
+    tmpfs: [/tmp]
+    ports: ["127.0.0.1:8080:8080"]
+    volumes:
+      - ../config:/config:ro
+      - ../secrets:/run/secrets:ro
+      # Only for Sonic or S3: the AWS credentials folder (the folder, not the file), with AWS_PROFILE.
+      # - ~/.aws:/home/nonroot/.aws:ro
+      - dialout-data:/data
+volumes:
+  dialout-data:

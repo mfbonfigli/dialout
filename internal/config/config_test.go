@@ -1,0 +1,176 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+const sample = `
+owner: Marco
+timezone: Europe/Rome
+twilio:
+  account_sid: ${T_SID}
+  api_key_sid: SK123
+  api_key_secret: ${T_SECRET}
+  auth_token: ${T_TOKEN}
+  from: "+353 85 000 0000"
+engine:
+  name: sonic
+prompt:
+  file: prompt.tmpl
+storage:
+  record_audio: true
+  spool: data/spool
+policy:
+  enabled: true
+  allowlist:
+    - number: "+39 333 000 0000"
+      label: Marco (mobile)
+      name: Marco
+      kind: personal
+    - number: "02 1234 5678"
+      label: Pizzeria
+  limits:
+    per_hour: 0
+`
+
+func write(t *testing.T, dir, name, text string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestLoad(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("T_SID", "AC123")
+	t.Setenv("T_SECRET", "s#cret: with yaml")
+	write(t, dir, "secrets.env", "T_TOKEN='tok$en'\nT_SID=from-file\n")
+	write(t, dir, "prompt.tmpl", `{{define "system"}}Call for {{.Owner}}: {{.Objective}} {{.Closing}}{{end}}`)
+	path := write(t, dir, "dialout.yaml", "secrets_file: secrets.env\n"+sample)
+
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Secrets: from the environment, which wins over the secrets file, and from the file.
+	if c.Twilio.AccountSID != "AC123" || c.Twilio.APIKeySecret != "s#cret: with yaml" || c.Twilio.AuthToken != "tok$en" {
+		t.Errorf("twilio = %+v", c.Twilio)
+	}
+	// Defaults, and relative paths from the file's folder.
+	if c.Engine.Sonic.Voice != "beatrice" || c.Engine.Sonic.Region != "eu-north-1" || c.Tunnel.Listen != "127.0.0.1:8090" ||
+		c.Storage.SegmentSeconds != 60 || c.Server.MCPListen != ":8080" || c.Engine.Language != "it" {
+		t.Errorf("defaults: %+v", c)
+	}
+	if c.Storage.Spool != filepath.Join(dir, "data", "spool") || !strings.HasSuffix(c.Storage.Index, "calls.json") ||
+		c.Prompt.File != filepath.Join(dir, "prompt.tmpl") {
+		t.Errorf("paths: spool %s, index %s, prompt %s", c.Storage.Spool, c.Storage.Index, c.Prompt.File)
+	}
+	if c.Location.String() != "Europe/Rome" || c.Prompts.Source != c.Prompt.File || c.Path != path {
+		t.Errorf("location %v, prompts %q", c.Location, c.Prompts.Source)
+	}
+	p := c.PolicyConfig()
+	if !p.Enabled || p.Mode != "allowlist" || len(p.Allowlist) != 2 || p.Allowlist[0].Number != "+393330000000" ||
+		p.Allowlist[0].Kind != "personal" || p.Allowlist[1].Number != "+390212345678" ||
+		p.MaxPerHour != 0 || p.MaxPerDay != 20 || p.MaxCallSeconds != 300 || p.MaxCallee != 100 {
+		t.Errorf("policy = %+v", p)
+	}
+	if err := c.CheckServer(); err == nil {
+		t.Error("server without a token accepted")
+	}
+	c.Server.MCPToken = strings.Repeat("a", 32)
+	if err := c.CheckServer(); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestErrors(t *testing.T) {
+	t.Setenv("T_SID", "AC123")
+	t.Setenv("T_SECRET", "x")
+	t.Setenv("T_TOKEN", "x")
+	base := strings.Replace(sample, "prompt:\n  file: prompt.tmpl\n", "", 1)
+	if _, err := Parse([]byte(base), t.TempDir()); err != nil {
+		t.Fatalf("base config: %v", err)
+	}
+	for name, c := range map[string]struct{ text, want string }{
+		"unknown key":   {base + "polcy: {}\n", "polcy"},
+		"typo in limit": {strings.Replace(base, "per_hour: 0", "per_hour: 0\n    per_minute: 1", 1), "per_minute"},
+		"wrong type":    {strings.Replace(base, "record_audio: true", "record_audio: maybe", 1), "into bool"},
+		"empty":         {"", "empty"},
+		"two documents": {base + "---\nowner: x\n", "more than one"},
+		"unset secret":  {strings.Replace(base, "${T_TOKEN}", "${NOT_SET_ANYWHERE}", 1), "twilio.auth_token is empty (NOT_SET_ANYWHERE not set)"},
+		"no owner":      {strings.Replace(base, "owner: Marco", "owner: \"\"", 1), "owner"},
+		"engine":        {strings.Replace(base, "name: sonic", "name: watson", 1), "engine.name"},
+		"elevenlabs":    {strings.Replace(base, "name: sonic", "name: elevenlabs", 1), "engine.elevenlabs.api_key is empty"},
+		"tunnel token":  {base + "tunnel:\n  hostname: calls.example.com\n", "tunnel.token is empty"},
+		"bad number":    {strings.Replace(base, "02 1234 5678", "112", 1), "policy.allowlist"},
+		"bad kind":      {strings.Replace(base, "kind: personal", "kind: friend", 1), "kind"},
+		"long call":     {strings.Replace(base, "per_hour: 0", "max_minutes: 8", 1), "max_minutes"},
+		"ssm":           {strings.Replace(base, "enabled: true", "enabled: true\n  source: ssm", 1), "policy.source"},
+		"socket":        {base + "server:\n  api_socket: /run/x.sock\n", "api_socket"},
+		"timezone":      {strings.Replace(base, "Europe/Rome", "Europe/Atlantis", 1), "timezone"},
+		"prompt file":   {base + "prompt:\n  file: missing.tmpl\n", "prompt file"},
+	} {
+		_, err := Parse([]byte(c.text), t.TempDir())
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: error %v, want it to mention %q", name, err, c.want)
+		}
+	}
+}
+
+func TestExpandString(t *testing.T) {
+	t.Setenv("A_VAR", "value")
+	for in, want := range map[string]string{
+		"plain":              "plain",
+		"${A_VAR}":           "value",
+		"x-${A_VAR}-y":       "x-value-y",
+		"$$5 and $$${A_VAR}": "$5 and $value",
+		"$5 and ${":          "$5 and ${",
+		"${not valid}":       "${not valid}",
+		"trailing $":         "trailing $",
+	} {
+		if got, _ := expandString(in); got != want {
+			t.Errorf("expandString(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if _, missing := expandString("${NOPE_1}${A_VAR}${NOPE_2}"); strings.Join(missing, ",") != "NOPE_1,NOPE_2" {
+		t.Errorf("missing = %v", missing)
+	}
+}
+
+func TestFind(t *testing.T) {
+	if p, err := Find("x.yaml"); err != nil || p != "x.yaml" {
+		t.Errorf("Find(flag) = %q, %v", p, err)
+	}
+	t.Setenv(Env, "from-env.yaml")
+	if p, err := Find(""); err != nil || p != "from-env.yaml" {
+		t.Errorf("Find(env) = %q, %v", p, err)
+	}
+}
+
+func TestExampleConfig(t *testing.T) {
+	b, err := os.ReadFile("../../examples/dialout.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"TWILIO_ACCOUNT_SID", "TWILIO_API_KEY_SID", "TWILIO_API_KEY_SECRET", "TWILIO_AUTH_TOKEN"} {
+		t.Setenv(k, "x")
+	}
+	t.Setenv("DIALOUT_MCP_TOKEN", strings.Repeat("t", 64))
+	t.Setenv(DataEnv, "/data")
+	text := strings.Replace(string(b), "secrets_file: secrets.env", "secrets_file: \"\"", 1)
+	c, err := Parse([]byte(text), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CheckServer(); err != nil {
+		t.Error(err)
+	}
+	if c.Storage.Spool != filepath.Join("/data", "spool") || c.Storage.Index != filepath.Join("/data", "calls.json") {
+		t.Errorf("data paths: %s, %s", c.Storage.Spool, c.Storage.Index)
+	}
+}
