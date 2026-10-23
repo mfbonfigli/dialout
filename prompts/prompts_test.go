@@ -186,3 +186,19 @@ func TestExamplePrompt(t *testing.T) {
 		t.Errorf("rendered:\n%s\n%+v", r.System, r)
 	}
 }
+
+func TestBuiltinStaysOnTheObjective(t *testing.T) {
+	// A test call with the objective "saluta e chiedi come stai" ended in a dinner booking: the
+	// model recited the prompt's own restaurant examples. Keep the examples neutral.
+	s := render(t, Builtin(), ToolsThenGoodbye, Vars{Owner: "Mario", Now: friday, Brief: Brief{Objective: "x"}}).System
+	for _, w := range []string{"tavolo", "prenotazione", "cena", "ristorant", "alle nove"} {
+		if strings.Contains(s, w) {
+			t.Errorf("built-in prompt mentions %q", w)
+		}
+	}
+	for _, want := range []string{"Parla solo di quello che c'è in PERCHÉ CHIAMI", "anche se era solo un saluto"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("built-in prompt lacks %q", want)
+		}
+	}
+}
