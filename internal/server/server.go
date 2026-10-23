@@ -215,7 +215,6 @@ type placeCallIn struct {
 	Objective  string `json:"objective" jsonschema:"why the agent calls, in words it can say, with the preferred option. No ranges"`
 	Limits     string `json:"limits,omitempty" jsonschema:"private rules for deciding: margins, ceilings, defaults, what may be flexible. Never said to the callee"`
 	Context    string `json:"context,omitempty" jsonschema:"other facts the agent knows and may share: the name for a booking, the number of people"`
-	Voice      string `json:"voice,omitempty" jsonschema:"the engine's voice; the configured one when empty"`
 	MaxMinutes int    `json:"max_minutes,omitempty" jsonschema:"the longest talk time; the policy maximum when 0"`
 }
 
@@ -242,10 +241,8 @@ func (s *Server) placeCall(ctx context.Context, _ *mcp.CallToolRequest, in place
 	}
 	brief := prompts.Brief{Callee: d.Callee, Kind: d.CalleeKind, Label: d.Label, Opening: in.Opening,
 		Objective: in.Objective, Limits: in.Limits, Context: in.Context}
+	// The voice is the owner's setting, not the caller's: a cloned voice could impersonate someone.
 	cc := s.App.CallConfig(cfg, nil, nil)
-	if in.Voice != "" {
-		cc.Voice = in.Voice
-	}
 	// The engine checks the voice and renders the prompt now, so a mistake comes back here
 	// instead of as a failed call.
 	if _, err := s.App.Engine.Prepare(voice.Config{Owner: cc.Owner, Voice: cc.Voice, Brief: brief,

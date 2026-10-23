@@ -209,7 +209,7 @@ func TestRefusals(t *testing.T) {
 		{map[string]any{"to": "Pizzeria", "objective": " "}, "invalid_objective"},
 		{map[string]any{"to": "Pizzeria", "objective": "x", "kind": "friend"}, "invalid_kind"},
 		{map[string]any{"to": "Pizzeria", "objective": "x", "max_minutes": 9}, "invalid_duration"},
-		{map[string]any{"to": "Pizzeria", "objective": "x", "voice": "matthew"}, "unknown voice"},
+		{map[string]any{"to": "Pizzeria", "objective": "x", "voice": "matthew"}, "voice"}, // not the caller's choice
 	} {
 		if msg := h.tool("place_call", c.args, nil, true); !strings.Contains(msg, c.want) {
 			t.Errorf("%v: %s, want %s", c.args, msg, c.want)
@@ -227,8 +227,7 @@ func TestRefusals(t *testing.T) {
 func TestHangUpAndLimits(t *testing.T) {
 	h := newHarness(t)
 	var placed placeCallOut
-	h.tool("place_call", map[string]any{"to": "Pizzeria", "objective": "x", "callee": "la pizzeria Da Mario", "kind": "business",
-		"voice": "lorenzo"}, &placed, false)
+	h.tool("place_call", map[string]any{"to": "Pizzeria", "objective": "x", "callee": "la pizzeria Da Mario", "kind": "business"}, &placed, false)
 	var hung hangUpOut
 	h.tool("hang_up", map[string]any{"call_id": placed.CallID}, &hung, false)
 	if hung.Status != "completed" {
@@ -239,7 +238,7 @@ func TestHangUpAndLimits(t *testing.T) {
 	if rec.EndReason != "hung_up_on_request" || rec.Callee != "la pizzeria Da Mario" || rec.Kind != "business" {
 		t.Errorf("hung-up call = %+v", rec)
 	}
-	if h.configs[0].Voice != "lorenzo" {
+	if h.configs[0].Voice != "beatrice" { // the configured one
 		t.Errorf("voice = %q", h.configs[0].Voice)
 	}
 

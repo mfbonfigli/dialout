@@ -42,7 +42,7 @@ The command shows a summary, asks for confirmation, prints the conversation as i
 | Tool | Does |
 |---|---|
 | `list_numbers` | The numbers that may be called, whether calls are enabled, the limits, the calls left |
-| `place_call` | Place a call: `to`, `objective`, and optionally `callee`, `kind` (`business` or `personal`), `opening`, `limits`, `context`, `voice`, `max_minutes`. Returns the `call_id` at once |
+| `place_call` | Place a call: `to`, `objective`, and optionally `callee`, `kind` (`business` or `personal`), `opening`, `limits`, `context`, `max_minutes` (only shorter than the policy's). Returns the `call_id` at once. The voice is the owner's setting, not the caller's |
 | `get_call` | Status, outcome and transcript; `wait_seconds` (≤ 120) waits for the end |
 | `hang_up` | Hang up, or cancel while it rings |
 
