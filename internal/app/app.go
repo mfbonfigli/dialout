@@ -24,6 +24,7 @@ import (
 	"github.com/mfbonfigli/dialout/internal/sonic"
 	"github.com/mfbonfigli/dialout/internal/twilio"
 	"github.com/mfbonfigli/dialout/internal/voice"
+	"github.com/mfbonfigli/dialout/internal/watchdog"
 )
 
 // Options change how the parts are built.
@@ -40,6 +41,7 @@ type App struct {
 	Recorder recorder.Config
 	Streams  *call.Streams
 	Tunnel   call.Starter
+	Watchdog *watchdog.Config // nil when off
 	Log      *slog.Logger
 
 	where func(key string) string
@@ -78,6 +80,15 @@ func Build(cfg *config.Config, opt Options) (*App, error) {
 			a.Tunnel = &call.Tunnel{Binary: bin, Token: t.Token, Host: t.Hostname, Log: log}
 		} else {
 			a.Tunnel = &call.QuickTunnel{Binary: bin, Origin: "http://" + t.Listen, Log: log}
+		}
+	}
+
+	if w := cfg.Watchdog; w.Enabled {
+		a.Watchdog = &watchdog.Config{
+			Judge: &watchdog.Decisions{BaseURL: w.BaseURL, APIKey: w.APIKey, Model: w.Model},
+			Thresholds: watchdog.Thresholds{HangUp: w.Thresholds.HangUp, Close: w.Thresholds.Close,
+				WrapUp: w.Thresholds.WrapUp, OffTopic: w.Thresholds.OffTopic},
+			Timeout: w.Timeout,
 		}
 	}
 
@@ -170,6 +181,7 @@ func (a *App) CallConfig(cfg *config.Config, notify func(string), observe func(c
 	return call.Config{
 		Twilio: a.Twilio, From: a.Config.Twilio.From, Streams: a.Streams, Tunnel: a.Tunnel, Engine: a.Engine,
 		Recorder: a.Recorder, Owner: a.Config.Owner, Voice: a.Voice(), Prompts: cfg.Prompts, Location: cfg.Location,
-		Notify: notify, Observe: observe, Log: a.Log,
+		Watchdog: a.Watchdog,
+		Notify:   notify, Observe: observe, Log: a.Log,
 	}
 }

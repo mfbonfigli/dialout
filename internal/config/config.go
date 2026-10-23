@@ -33,16 +33,17 @@ const DataEnv = "DIALOUT_DATA"
 
 // Config is dialout.yaml.
 type Config struct {
-	Owner       string  `yaml:"owner"`        // who the agent calls for, as said on the phone
-	Timezone    string  `yaml:"timezone"`     // for the date in the prompt; the machine's when empty
-	SecretsFile string  `yaml:"secrets_file"` // KEY=VALUE file loaded into the environment first
-	Twilio      Twilio  `yaml:"twilio"`
-	Engine      Engine  `yaml:"engine"`
-	Prompt      Prompt  `yaml:"prompt"`
-	Tunnel      Tunnel  `yaml:"tunnel"`
-	Storage     Storage `yaml:"storage"`
-	Server      Server  `yaml:"server"`
-	Policy      Policy  `yaml:"policy"`
+	Owner       string   `yaml:"owner"`        // who the agent calls for, as said on the phone
+	Timezone    string   `yaml:"timezone"`     // for the date in the prompt; the machine's when empty
+	SecretsFile string   `yaml:"secrets_file"` // KEY=VALUE file loaded into the environment first
+	Twilio      Twilio   `yaml:"twilio"`
+	Engine      Engine   `yaml:"engine"`
+	Prompt      Prompt   `yaml:"prompt"`
+	Tunnel      Tunnel   `yaml:"tunnel"`
+	Storage     Storage  `yaml:"storage"`
+	Server      Server   `yaml:"server"`
+	Watchdog    Watchdog `yaml:"watchdog"`
+	Policy      Policy   `yaml:"policy"`
 
 	Path     string         `yaml:"-"` // the file it was read from
 	Location *time.Location `yaml:"-"` // Timezone, loaded
@@ -113,6 +114,24 @@ type Server struct {
 	MCPToken  string `yaml:"mcp_token"`  // the bearer token every HTTP request must carry
 }
 
+// Watchdog judges the call after every turn with a classifier on OpenRouter's Decisions API and
+// may end it sooner: wrap up, close after the agent's goodbye, or hang up.
+type Watchdog struct {
+	Enabled    bool               `yaml:"enabled"`
+	BaseURL    string             `yaml:"base_url"`
+	APIKey     string             `yaml:"api_key"`
+	Model      string             `yaml:"model"`
+	Timeout    time.Duration      `yaml:"timeout"` // a verdict later than this is dropped
+	Thresholds WatchdogThresholds `yaml:"thresholds"`
+}
+
+type WatchdogThresholds struct {
+	HangUp   float64 `yaml:"hang_up"`   // voicemail_or_ivr or hostile
+	Close    float64 `yaml:"close"`     // agent_said_goodbye without end_call
+	WrapUp   float64 `yaml:"wrap_up"`   // objective_reached or callee_wants_to_end
+	OffTopic float64 `yaml:"off_topic"` // two checks in a row
+}
+
 type Policy struct {
 	Source         string         `yaml:"source"` // file (the keys below); ssm is reserved
 	Enabled        bool           `yaml:"enabled"`
@@ -154,6 +173,8 @@ func defaults() Config {
 		Tunnel:  Tunnel{Listen: "127.0.0.1:8090"},
 		Storage: Storage{Enabled: true, SegmentSeconds: 60},
 		Server:  Server{MCPListen: ":8080"},
+		Watchdog: Watchdog{BaseURL: "https://openrouter.ai/api", Model: "openai/gpt-6-luna-decisions", Timeout: 3 * time.Second,
+			Thresholds: WatchdogThresholds{HangUp: 0.9, Close: 0.8, WrapUp: 0.8, OffTopic: 0.7}},
 		Policy: Policy{Source: "file", Mode: string(policy.ModeAllowlist), Countries: []string{"IT"}, DefaultCountry: "IT",
 			NumberTypes: []string{"fixed", "mobile"}, Hours: "09:00-21:00", Limits: Limits{
 				MaxMinutes: 5, RingSeconds: 25, PerHour: 6, PerDay: 20, PerNumberDay: 2,
@@ -332,6 +353,21 @@ func (c *Config) check(unset map[string][]string) error {
 	}
 
 	need("server.mcp_listen", c.Server.MCPListen)
+
+	if w := c.Watchdog; w.Enabled {
+		need("watchdog.api_key", w.APIKey)
+		need("watchdog.base_url", w.BaseURL)
+		need("watchdog.model", w.Model)
+		if w.Timeout <= 0 || w.Timeout > 30*time.Second {
+			errs = append(errs, errors.New("watchdog.timeout must be between 0 and 30s"))
+		}
+		for name, v := range map[string]float64{"hang_up": w.Thresholds.HangUp, "close": w.Thresholds.Close,
+			"wrap_up": w.Thresholds.WrapUp, "off_topic": w.Thresholds.OffTopic} {
+			if v <= 0 || v > 1 {
+				errs = append(errs, fmt.Errorf("watchdog.thresholds.%s must be above 0 and at most 1", name))
+			}
+		}
+	}
 
 	if c.Policy.Source != "file" {
 		errs = append(errs, fmt.Errorf("policy.source: %q isn't supported; use file", c.Policy.Source))

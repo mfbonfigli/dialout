@@ -56,6 +56,18 @@ server:                                # dialout serve only
   mcp_listen: ":8080"                  # MCP over Streamable HTTP, path /mcp
   mcp_token: ${DIALOUT_MCP_TOKEN}      # at least 32 characters: openssl rand -hex 32
 
+watchdog:                              # judges the call after every turn and may end it sooner
+  enabled: false
+  base_url: https://openrouter.ai/api  # OpenRouter's Decisions API
+  api_key: ${OPENROUTER_API_KEY}       # a key of its own, with a spending cap
+  model: openai/gpt-6-luna-decisions
+  timeout: 3s                          # a later verdict is dropped; the call never waits for it
+  thresholds:
+    hang_up: 0.9                       # voicemail/automated menu, or a hostile callee: drop the line
+    close: 0.8                         # the agent said goodbye without end_call: hang up once it's silent
+    wrap_up: 0.8                       # objective reached, or the callee wants to end: cue a goodbye
+    off_topic: 0.7                     # off topic two checks in a row: cue a goodbye
+
 policy:                                # re-read before every call
   enabled: true                        # the kill switch
   mode: allowlist                      # allowlist: only the numbers below | open: any dialable number

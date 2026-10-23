@@ -43,13 +43,34 @@ const (
 	BlockDetails          = "tool.report_outcome.details"
 	BlockEndCall          = "tool.end_call"
 	BlockReason           = "tool.end_call.reason"
+	BlockCueWatchdog      = "cue.watchdog_wrap_up"
 )
 
-var blocks = []string{
-	BlockSystem, BlockToolsThenGoodbye, BlockWithGoodbye, BlockCueOpening, BlockCueWrapUp, BlockCueFinal,
-	BlockNextEndCall, BlockNextGoodbye, BlockReportOutcome, BlockResult, BlockSummary, BlockDetails,
-	BlockEndCall, BlockReason,
-}
+// The watchdog's questions. Each has three blocks: "watchdog.<name>" (the question) and
+// "watchdog.<name>.true" / ".false" (what yes and no mean).
+const (
+	QObjectiveReached = "objective_reached"
+	QAgentGoodbye     = "agent_said_goodbye"
+	QCalleeWantsToEnd = "callee_wants_to_end"
+	QOffTopic         = "off_topic"
+	QVoicemail        = "voicemail_or_ivr"
+	QHostile          = "hostile"
+)
+
+// WatchdogQuestions are the questions the watchdog asks after every turn, in order.
+var WatchdogQuestions = []string{QObjectiveReached, QAgentGoodbye, QCalleeWantsToEnd, QOffTopic, QVoicemail, QHostile}
+
+var blocks = func() []string {
+	b := []string{
+		BlockSystem, BlockToolsThenGoodbye, BlockWithGoodbye, BlockCueOpening, BlockCueWrapUp, BlockCueFinal,
+		BlockNextEndCall, BlockNextGoodbye, BlockReportOutcome, BlockResult, BlockSummary, BlockDetails,
+		BlockEndCall, BlockReason, BlockCueWatchdog,
+	}
+	for _, q := range WatchdogQuestions {
+		b = append(b, "watchdog."+q, "watchdog."+q+".true", "watchdog."+q+".false")
+	}
+	return b
+}()
 
 // Kinds of callee: who answers decides the register.
 const (
@@ -98,17 +119,24 @@ type Vars struct {
 
 // Rendered is everything one call needs from the prompt file.
 type Rendered struct {
-	System string
-	Cues   Cues
-	Hints  Hints
-	Tools  ToolTexts
+	System   string
+	Cues     Cues
+	Hints    Hints
+	Tools    ToolTexts
+	Watchdog []Question // in WatchdogQuestions order
 }
 
 // Cues are the lines the call engine sends while the call runs.
 type Cues struct {
-	Opening string // the callee stays silent after answering
-	WrapUp  string // 30 seconds before the time limit
-	Final   string // at the time limit
+	Opening  string // the callee stays silent after answering
+	WrapUp   string // 30 seconds before the time limit
+	Final    string // at the time limit
+	Watchdog string // the watchdog decided the call should wrap up
+}
+
+// Question is one of the watchdog's yes/no questions.
+type Question struct {
+	Name, Instructions, True, False string
 }
 
 // Hints are the next step Sonic gets in its tool results.
@@ -293,13 +321,18 @@ func (s *Set) Render(c Closing, v Vars) (*Rendered, error) {
 	v.Closing = exec(closing, false)
 	r := &Rendered{
 		System: exec(BlockSystem, false),
-		Cues:   Cues{Opening: exec(BlockCueOpening, true), WrapUp: exec(BlockCueWrapUp, true), Final: exec(BlockCueFinal, true)},
-		Hints:  Hints{EndCall: exec(BlockNextEndCall, true), Goodbye: exec(BlockNextGoodbye, true)},
+		Cues: Cues{Opening: exec(BlockCueOpening, true), WrapUp: exec(BlockCueWrapUp, true), Final: exec(BlockCueFinal, true),
+			Watchdog: exec(BlockCueWatchdog, true)},
+		Hints: Hints{EndCall: exec(BlockNextEndCall, true), Goodbye: exec(BlockNextGoodbye, true)},
 		Tools: ToolTexts{
 			ReportOutcome: exec(BlockReportOutcome, false), Result: exec(BlockResult, false),
 			Summary: exec(BlockSummary, false), Details: exec(BlockDetails, false),
 			EndCall: exec(BlockEndCall, false), Reason: exec(BlockReason, false),
 		},
+	}
+	for _, q := range WatchdogQuestions {
+		b := "watchdog." + q
+		r.Watchdog = append(r.Watchdog, Question{Name: q, Instructions: exec(b, false), True: exec(b+".true", true), False: exec(b+".false", true)})
 	}
 	if err != nil {
 		return nil, err

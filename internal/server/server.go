@@ -320,6 +320,7 @@ func (s *Server) finish(id string, res *call.Result) {
 			r.Transcript = res.Transcript
 		}
 		r.RecordingKey = res.Recording.RecordingKey
+		r.Watchdog = res.Watchdog
 		if res.Err != nil {
 			r.Error = res.Err.Error()
 		}

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const sample = `
@@ -127,6 +128,9 @@ func TestErrors(t *testing.T) {
 		"hours":                 {strings.Replace(base, "enabled: true", "enabled: true\n  hours: 9-21", 1), "policy.hours"},
 		"listed abroad":         {strings.Replace(base, "enabled: true", "enabled: true\n  countries: [IE]", 1), "country not allowed: IT"},
 		"audio without storage": {strings.Replace(base, "record_audio: true", "record_audio: true\n  enabled: false", 1), "storage.record_audio needs storage.enabled"},
+		"watchdog key":          {base + "watchdog:\n  enabled: true\n", "watchdog.api_key is empty"},
+		"watchdog threshold":    {base + "watchdog:\n  enabled: true\n  api_key: k\n  thresholds: {close: 1.5}\n", "watchdog.thresholds.close"},
+		"watchdog timeout":      {base + "watchdog:\n  enabled: true\n  api_key: k\n  timeout: 1m\n", "watchdog.timeout"},
 		"per number":            {strings.Replace(base, "per_hour: 0", "per_number_per_day: -1", 1), "per_number_per_day"},
 	} {
 		_, err := Parse([]byte(c.text), t.TempDir())
@@ -158,6 +162,24 @@ func TestOpenPolicy(t *testing.T) {
 		strings.Join(p.Blocklist, ",") != "+390212345678,+3531" || p.Hours.String() != "08:00-20:00" || p.MaxPerNumberPerDay != 1 ||
 		p.Allowlist[1].Number != "+353851234567" {
 		t.Errorf("open policy = %+v", p)
+	}
+}
+
+func TestWatchdogConfig(t *testing.T) {
+	t.Setenv("T_SID", "AC123")
+	t.Setenv("T_SECRET", "x")
+	t.Setenv("T_TOKEN", "x")
+	t.Setenv("OR_KEY", "or-key")
+	text := strings.Replace(sample, "prompt:\n  file: prompt.tmpl\n", "", 1) +
+		"watchdog:\n  enabled: true\n  api_key: ${OR_KEY}\n  timeout: 2500ms\n  thresholds: {wrap_up: 0.85}\n"
+	c, err := Parse([]byte(text), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := c.Watchdog
+	if !w.Enabled || w.APIKey != "or-key" || w.Model != "openai/gpt-6-luna-decisions" || w.BaseURL != "https://openrouter.ai/api" ||
+		w.Timeout != 2500*time.Millisecond || w.Thresholds.WrapUp != 0.85 || w.Thresholds.HangUp != 0.9 || w.Thresholds.Close != 0.8 {
+		t.Errorf("watchdog = %+v", w)
 	}
 }
 

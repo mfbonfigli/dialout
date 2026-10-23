@@ -141,6 +141,9 @@ func cmdCall(args []string) int {
 	default:
 		fmt.Println("  tunnel: quick, on a random trycloudflare.com name")
 	}
+	if a.Watchdog != nil {
+		fmt.Printf("  watchdog: %s\n", cfg.Watchdog.Model)
+	}
 	switch {
 	case !cfg.Storage.Enabled:
 		fmt.Println("  storage: off (nothing written to disk)")
@@ -233,7 +236,7 @@ func cmdCall(args []string) int {
 // printer prints the call's progress with the time since the command started.
 func printer(start time.Time) func(call.Event) {
 	icons := map[string]string{
-		"callee": "👤", "agent": "🤖", "cue": "💬", "interrupted": "✋", "outcome": "📋",
+		"callee": "👤", "agent": "🤖", "cue": "💬", "interrupted": "✋", "outcome": "📋", "watchdog": "🐕",
 	}
 	return func(e call.Event) {
 		el := time.Since(start)
@@ -241,7 +244,7 @@ func printer(start time.Time) func(call.Event) {
 		switch e.Kind {
 		case "interrupted":
 			fmt.Println(stamp, icons[e.Kind], "interrupted")
-		case "callee", "agent", "cue", "outcome":
+		case "callee", "agent", "cue", "outcome", "watchdog":
 			fmt.Println(stamp, icons[e.Kind], e.Text)
 		default:
 			fmt.Println(stamp, "·", e.Text)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"github.com/mfbonfigli/dialout/internal/recorder"
 	"github.com/mfbonfigli/dialout/internal/sonic"
 	"github.com/mfbonfigli/dialout/internal/twilio"
+	"github.com/mfbonfigli/dialout/internal/watchdog"
 	"github.com/mfbonfigli/dialout/prompts"
 )
 
@@ -811,5 +813,85 @@ func TestCallWithoutStorage(t *testing.T) {
 		if entries, _ := os.ReadDir(dir); len(entries) > 0 {
 			t.Errorf("%s holds %d entries", dir, len(entries))
 		}
+	}
+}
+
+// fakeJudge answers the watchdog's questions with a fixed function of the state.
+type fakeJudge struct {
+	mu     sync.Mutex
+	calls  int
+	answer func(st watchdog.State) map[string]float64
+}
+
+func (j *fakeJudge) Judge(_ context.Context, state any, qs []prompts.Question) (watchdog.Answers, error) {
+	j.mu.Lock()
+	j.calls++
+	j.mu.Unlock()
+	if len(qs) != len(prompts.WatchdogQuestions) {
+		return watchdog.Answers{}, fmt.Errorf("%d questions", len(qs))
+	}
+	return watchdog.Answers{Probabilities: j.answer(state.(watchdog.State)), Cost: 0.001}, nil
+}
+
+func watchdogCall(t *testing.T, answer func(watchdog.State) map[string]float64) (*harness, Config, chan *Result) {
+	h := newHarness(t)
+	cfg := h.config()
+	cfg.Timing.GoodbyeGrace, cfg.Timing.WrapEscalation = 200*time.Millisecond, 400*time.Millisecond
+	cfg.Watchdog = &watchdog.Config{Judge: &fakeJudge{answer: answer}, Thresholds: watchdog.DefaultThresholds, Timeout: time.Second}
+	resCh := startCall(h, context.Background(), cfg, params())
+	form := <-h.created
+	h.answer(context.Background(), form.Get("Twiml"), "CA1", true)
+	h.sonic.waitInput(t, func(name string, b map[string]any) bool { return name == "textInput" })
+	return h, cfg, resCh
+}
+
+func TestWatchdogHangsUp(t *testing.T) {
+	h, _, resCh := watchdogCall(t, func(watchdog.State) map[string]float64 {
+		return map[string]float64{prompts.QVoicemail: 0.97}
+	})
+	h.sonic.say("a1", 1600, "Pronto, buongiorno!")
+	go h.sonic.endsWhenClosed(t)
+	res := waitResult(t, resCh)
+	if res.EndReason != "watchdog_hang_up" || res.Watchdog == nil || len(res.Watchdog.Actions) != 1 ||
+		res.Watchdog.Actions[0].Action != "hang_up" || res.Watchdog.Actions[0].Probabilities[prompts.QVoicemail] != 0.97 ||
+		res.Watchdog.Checks < 1 || res.Watchdog.Cost == 0 {
+		t.Fatalf("result = %+v, watchdog %+v", res, res.Watchdog)
+	}
+}
+
+func TestWatchdogClosesAfterGoodbye(t *testing.T) {
+	// As in a real Sonic call: the agent said goodbye and never called end_call.
+	h, _, resCh := watchdogCall(t, func(st watchdog.State) map[string]float64 {
+		last := st.Transcript[len(st.Transcript)-1]
+		if last.Speaker == "agent" && strings.Contains(last.Text, "arrivederci") {
+			return map[string]float64{prompts.QAgentGoodbye: 0.93}
+		}
+		return map[string]float64{}
+	})
+	h.sonic.say("a1", 1600, "Perfetto, grazie e arrivederci!")
+	go h.sonic.endsWhenClosed(t)
+	res := waitResult(t, resCh)
+	if res.EndReason != "watchdog_close" || len(res.Watchdog.Actions) != 1 || res.Watchdog.Actions[0].Action != "close" {
+		t.Fatalf("result = %+v, watchdog %+v", res, res.Watchdog)
+	}
+}
+
+func TestWatchdogWrapsUpThenCloses(t *testing.T) {
+	h, _, resCh := watchdogCall(t, func(watchdog.State) map[string]float64 {
+		return map[string]float64{prompts.QObjectiveReached: 0.9}
+	})
+	h.sonic.say("a1", 1600, "Ciao, come stai?")
+	// The wrap-up cue goes out once the agent is silent; the agent ignores it, so the watchdog
+	// closes the call like at the time limit: the final cue, then the line drops.
+	h.sonic.waitInput(t, func(name string, b map[string]any) bool {
+		return name == "textInput" && b["content"] == builtinCues.Watchdog
+	})
+	h.sonic.waitInput(t, func(name string, b map[string]any) bool {
+		return name == "textInput" && b["content"] == builtinCues.Final
+	})
+	go h.sonic.endsWhenClosed(t)
+	res := waitResult(t, resCh)
+	if res.EndReason != "watchdog_close" || len(res.Watchdog.Actions) != 1 || res.Watchdog.Actions[0].Action != "wrap_up" {
+		t.Fatalf("result = %+v, watchdog %+v", res, res.Watchdog)
 	}
 }

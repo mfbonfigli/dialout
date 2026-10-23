@@ -102,6 +102,25 @@ The policy is checked on every `place_call`, and the configuration's policy sect
 
 Open mode removes the main guard: an agent manipulated by something it read could call anyone in the allowed countries. Keep the MCP client's approval for every call, Twilio's geographic permissions set to the same countries, and a small prepaid balance. When calling strangers, consider having the agent say up front that it's an assistant, in the prompt file. Disclosure and recording rules vary by country.
 
+## Watchdog (optional)
+
+Voice models don't always close calls the way the prompt says: Sonic sometimes says goodbye without calling `end_call`, then keeps answering whoever is still on the line. The watchdog fixes that without relying on the voice model.
+
+After every transcript line, dialout sends the brief and the transcript so far to a classifier, [GPT-6 Luna Decisions](https://openrouter.ai/openai/gpt-6-luna-decisions) on OpenRouter's Decisions API, and gets back a probability for each of six yes/no questions: objective reached, agent said goodbye, callee wants to end, off topic, voicemail or automated menu, hostile. Fixed rules in dialout turn the numbers into actions, which dialout carries out itself:
+
+| When | Action |
+|---|---|
+| Voicemail/menu or hostile ≥ `hang_up` (0.9) | Drop the line at once |
+| Agent said goodbye ≥ `close` (0.8) and no `end_call` within 3 s | Hang up once the agent is silent |
+| Objective reached or callee wants to end ≥ `wrap_up` (0.8), or off topic ≥ `off_topic` (0.7) twice in a row | A cue to say goodbye and close at the next silence; if the conversation goes on (two more lines from the callee, or 20 s), the final cue and the line drops |
+
+- **Off by default.** Turn it on with `watchdog.enabled` and an OpenRouter key.
+- **It can only end a call sooner,** never prolong it or make the agent say anything new. A transcript saying "ignore your instructions" can at worst keep it from acting, and the time limit still applies.
+- **The call never waits for it.** Only the latest check counts. A late or failed verdict is dropped and logged.
+- **Recorded:** every action, with the probabilities behind it, goes into `meta.json` and `get_call` (`watchdog`), along with the number of checks and their cost (about $0.0002 a check).
+- **Tunable:** the questions are blocks of the prompt file (`watchdog.<name>`, `.true`, `.false`), so you can reword them; the thresholds are in the configuration.
+- **Privacy:** the live transcript goes to OpenRouter and the model's provider.
+
 ## Prompt file
 
 `prompt.file` points to a Go `text/template` file of named blocks. The blocks you leave out come from the [built-in file](prompts/builtin.tmpl). [examples/prompt-en.tmpl](examples/prompt-en.tmpl) is a complete English prompt.
@@ -113,6 +132,7 @@ Open mode removes the main guard: an agent manipulated by something it read coul
 | `cue.opening`, `cue.wrap_up`, `cue.final` | Lines sent while the call runs: silence after the answer, 30 s before the limit, at the limit |
 | `tool.next.end_call`, `tool.next.goodbye` | Sonic's tool results: the next step. Keep them in the call's language |
 | `tool.report_outcome[.result/.summary/.details]`, `tool.end_call[.reason]` | Tool descriptions, English by default |
+| `cue.watchdog_wrap_up`, `watchdog.<question>[.true/.false]` | The watchdog's wrap-up cue (spoken) and its questions (not spoken) |
 
 Variables: `.Owner`, `.Female` (the voice's grammatical gender), `.Callee`, `.Kind`, `.Label`, `.Opening`, `.Objective`, `.Limits`, `.Context`, `.Now` and `.Closing`. `{{weekday .Now "Sunday Monday …"}}` and `{{month .Now "January …"}}` give day and month names in any language. Every block is test-rendered at load time, so a typo fails at start-up, not on a call. The brief is inserted as data and never evaluated.
 
