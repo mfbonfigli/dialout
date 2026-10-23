@@ -113,18 +113,28 @@ type Server struct {
 }
 
 type Policy struct {
-	Source    string         `yaml:"source"` // file (the keys below); ssm is reserved
-	Enabled   bool           `yaml:"enabled"`
-	Mode      string         `yaml:"mode"`
-	Allowlist []policy.Entry `yaml:"allowlist"`
-	Limits    Limits         `yaml:"limits"`
+	Source         string         `yaml:"source"` // file (the keys below); ssm is reserved
+	Enabled        bool           `yaml:"enabled"`
+	Mode           string         `yaml:"mode"`            // allowlist, or open: any dialable number
+	Countries      []string       `yaml:"countries"`       // ISO codes of the countries numbers may be in
+	DefaultCountry string         `yaml:"default_country"` // for numbers written without +
+	NumberTypes    []string       `yaml:"number_types"`    // fixed, mobile, toll_free
+	Blocklist      []string       `yaml:"blocklist"`       // numbers or prefixes never called
+	Hours          string         `yaml:"hours"`           // open mode, unlisted numbers: e.g. 09:00-21:00
+	Allowlist      []policy.Entry `yaml:"allowlist"`
+	Limits         Limits         `yaml:"limits"`
+
+	dialable  policy.Dialable // the keys above, checked
+	blocklist []string
+	hours     policy.Hours
 }
 
 type Limits struct {
 	MaxMinutes     int `yaml:"max_minutes"`
 	RingSeconds    int `yaml:"ring_seconds"`
-	PerHour        int `yaml:"per_hour"` // 0: no limit
-	PerDay         int `yaml:"per_day"`  // 0: no limit
+	PerHour        int `yaml:"per_hour"`           // 0: no limit
+	PerDay         int `yaml:"per_day"`            // 0: no limit
+	PerNumberDay   int `yaml:"per_number_per_day"` // open mode, unlisted numbers; 0: no limit
 	CalleeChars    int `yaml:"callee_chars"`
 	OpeningChars   int `yaml:"opening_chars"`
 	ObjectiveChars int `yaml:"objective_chars"`
@@ -143,10 +153,11 @@ func defaults() Config {
 		Tunnel:  Tunnel{Listen: "127.0.0.1:8090"},
 		Storage: Storage{SegmentSeconds: 60},
 		Server:  Server{MCPListen: ":8080"},
-		Policy: Policy{Source: "file", Mode: string(policy.ModeAllowlist), Limits: Limits{
-			MaxMinutes: 5, RingSeconds: 25, PerHour: 6, PerDay: 20,
-			CalleeChars: 100, OpeningChars: 300, ObjectiveChars: 500, LimitsChars: 500, ContextChars: 2000,
-		}},
+		Policy: Policy{Source: "file", Mode: string(policy.ModeAllowlist), Countries: []string{"IT"}, DefaultCountry: "IT",
+			NumberTypes: []string{"fixed", "mobile"}, Hours: "09:00-21:00", Limits: Limits{
+				MaxMinutes: 5, RingSeconds: 25, PerHour: 6, PerDay: 20, PerNumberDay: 2,
+				CalleeChars: 100, OpeningChars: 300, ObjectiveChars: 500, LimitsChars: 500, ContextChars: 2000,
+			}},
 	}
 }
 
@@ -321,8 +332,10 @@ func (c *Config) check(unset map[string][]string) error {
 	if c.Policy.Source != "file" {
 		errs = append(errs, fmt.Errorf("policy.source: %q isn't supported; use file", c.Policy.Source))
 	}
-	oneOf("policy.mode", c.Policy.Mode, string(policy.ModeAllowlist))
-	if al, err := policy.ValidateAllowlist(c.Policy.Allowlist); err != nil {
+	oneOf("policy.mode", c.Policy.Mode, string(policy.ModeAllowlist), string(policy.ModeOpen))
+	if err := c.Policy.compile(); err != nil {
+		errs = append(errs, err)
+	} else if al, err := policy.ValidateAllowlist(c.Policy.Allowlist, c.Policy.dialable); err != nil {
 		errs = append(errs, fmt.Errorf("policy.allowlist: %w", err))
 	} else {
 		c.Policy.Allowlist = al
@@ -333,8 +346,8 @@ func (c *Config) check(unset map[string][]string) error {
 		errs = append(errs, fmt.Errorf("policy.limits.max_minutes must be between 1 and %d", MaxMinutes))
 	case l.RingSeconds < 5 || l.RingSeconds > 120:
 		errs = append(errs, errors.New("policy.limits.ring_seconds must be between 5 and 120"))
-	case l.PerHour < 0 || l.PerDay < 0:
-		errs = append(errs, errors.New("policy.limits.per_hour and per_day can't be negative"))
+	case l.PerHour < 0 || l.PerDay < 0 || l.PerNumberDay < 0:
+		errs = append(errs, errors.New("policy.limits.per_hour, per_day and per_number_per_day can't be negative"))
 	case l.CalleeChars < 1 || l.OpeningChars < 1 || l.ObjectiveChars < 1 || l.LimitsChars < 1 || l.ContextChars < 1:
 		errs = append(errs, errors.New("policy.limits: every size limit must be at least 1"))
 	}
@@ -356,11 +369,59 @@ func (c *Config) CheckServer() error {
 func (c *Config) PolicyConfig() policy.Config {
 	l := c.Policy.Limits
 	return policy.Config{
-		Enabled: c.Policy.Enabled, Mode: policy.Mode(c.Policy.Mode), Allowlist: c.Policy.Allowlist,
-		MaxPerHour: l.PerHour, MaxPerDay: l.PerDay, MaxCallee: l.CalleeChars, MaxOpening: l.OpeningChars,
+		Enabled: c.Policy.Enabled, Mode: policy.Mode(c.Policy.Mode), Dialable: c.Policy.dialable,
+		Allowlist: c.Policy.Allowlist, Blocklist: c.Policy.blocklist, Hours: c.Policy.hours, Location: c.Location,
+		MaxPerNumberPerDay: l.PerNumberDay, MaxPerHour: l.PerHour, MaxPerDay: l.PerDay,
+		MaxCallee: l.CalleeChars, MaxOpening: l.OpeningChars,
 		MaxObjective: l.ObjectiveChars, MaxContext: l.ContextChars, MaxLimits: l.LimitsChars,
 		MaxCallSeconds: l.MaxMinutes * 60,
 	}
+}
+
+// compile checks the countries, number types, blocklist and hours, and keeps them in the form
+// the policy uses.
+func (p *Policy) compile() error {
+	var errs []error
+	if len(p.Countries) == 0 {
+		errs = append(errs, errors.New("policy.countries is empty"))
+	}
+	var countries []string
+	for _, c := range p.Countries {
+		c = strings.ToUpper(strings.TrimSpace(c))
+		if !policy.ValidCountry(c) {
+			errs = append(errs, fmt.Errorf("policy.countries: %q isn't an ISO country code", c))
+		}
+		countries = append(countries, c)
+	}
+	def := strings.ToUpper(strings.TrimSpace(p.DefaultCountry))
+	if def != "" && !policy.ValidCountry(def) {
+		errs = append(errs, fmt.Errorf("policy.default_country: %q isn't an ISO country code", def))
+	}
+	if len(p.NumberTypes) == 0 {
+		errs = append(errs, errors.New("policy.number_types is empty"))
+	}
+	var kinds []policy.Kind
+	for _, t := range p.NumberTypes {
+		k := policy.Kind(strings.TrimSpace(t))
+		if !slices.Contains(policy.AllowableKinds, k) {
+			errs = append(errs, fmt.Errorf("policy.number_types: %q isn't one of fixed, mobile, toll_free", t))
+		}
+		kinds = append(kinds, k)
+	}
+	p.dialable = policy.Dialable{Countries: countries, DefaultCountry: def, Kinds: kinds}
+	p.blocklist = nil
+	for _, b := range p.Blocklist {
+		n, err := policy.NormalizeBlock(b)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("policy.blocklist: %w", err))
+		}
+		p.blocklist = append(p.blocklist, n)
+	}
+	var err error
+	if p.hours, err = policy.ParseHours(p.Hours); err != nil {
+		errs = append(errs, fmt.Errorf("policy.%w", err))
+	}
+	return errors.Join(errs...)
 }
 
 // expand replaces ${VAR} with the variable's value in every string of v, after decoding, so a

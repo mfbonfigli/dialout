@@ -107,7 +107,7 @@ func cmdCall(args []string) int {
 	if d.Label != "" {
 		who = d.Label + " " + d.Number
 	}
-	fmt.Printf("Calling %s, from %s\n", who, cfg.Twilio.From)
+	fmt.Printf("Calling %s (%s, %s), from %s\n", who, d.Country, d.Kind, cfg.Twilio.From)
 	if brief.Callee != "" {
 		fmt.Printf("  callee:    %s (%s)\n", brief.Callee, orDash(brief.Kind))
 	}

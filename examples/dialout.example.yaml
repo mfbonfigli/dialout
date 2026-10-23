@@ -57,7 +57,14 @@ server:                                # dialout serve only
 
 policy:                                # re-read before every call
   enabled: true                        # the kill switch
-  mode: allowlist
+  mode: allowlist                      # allowlist: only the numbers below | open: any dialable number
+  # Which numbers are dialable at all, in every mode (libphonenumber's numbering plans).
+  countries: [IT]                      # ISO codes; +1 is several countries, so name them (US, CA)
+  default_country: IT                  # for numbers written without +
+  number_types: [fixed, mobile]        # add toll_free if you want; premium, shared cost, VoIP… never
+  blocklist: []                        # numbers or prefixes, in international form: never called
+  # Open mode, numbers not on the allowlist: when they may be called, in timezone ("" = any time).
+  hours: "09:00-21:00"
   allowlist:
     - number: "+39 333 000 0000"       # quote numbers
       label: Marco (mobile)
@@ -68,6 +75,7 @@ policy:                                # re-read before every call
     ring_seconds: 25
     per_hour: 6                        # 0: no limit
     per_day: 20
+    per_number_per_day: 2              # open mode, numbers not on the allowlist; 0: no limit
     callee_chars: 100
     opening_chars: 300
     objective_chars: 500

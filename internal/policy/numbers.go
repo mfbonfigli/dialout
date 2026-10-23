@@ -5,95 +5,156 @@ package policy
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/nyaruka/phonenumbers"
 
 	"github.com/mfbonfigli/dialout/prompts"
 )
 
-// Kind is the type of an Italian number. Only fixed-line and mobile numbers can ever be called.
+// Kind is a number's type, from the country's numbering plan (libphonenumber's metadata).
 type Kind string
 
 const (
-	KindFixed  Kind = "fixed"
-	KindMobile Kind = "mobile"
+	KindFixed         Kind = "fixed"
+	KindMobile        Kind = "mobile"
+	KindFixedOrMobile Kind = "fixed_or_mobile" // where the plan can't tell them apart, e.g. the US
+	KindTollFree      Kind = "toll_free"
 )
 
-// Errors returned by NormalizeItalian. They are stable so callers can map them to reason codes.
+// AllowableKinds are the only types a configuration may allow. Premium-rate, shared-cost, VoIP,
+// personal, pager, UAN and voicemail numbers, and numbers of unknown type, are never called.
+var AllowableKinds = []Kind{KindFixed, KindMobile, KindTollFree}
+
+// Dialable is which numbers exist for dialout at all, in every mode: their countries and types.
+type Dialable struct {
+	Countries      []string // ISO 3166-1 region codes, e.g. IT, IE
+	DefaultCountry string   // the country of numbers written without an international prefix
+	Kinds          []Kind   // a subset of AllowableKinds
+}
+
+// allows reports whether a number of type k may be called. A fixed_or_mobile number may be when
+// either type is allowed.
+func (d Dialable) allows(k Kind) bool {
+	if k == KindFixedOrMobile {
+		return slices.Contains(d.Kinds, KindFixed) || slices.Contains(d.Kinds, KindMobile)
+	}
+	return slices.Contains(d.Kinds, k)
+}
+
+// Number is a number Classify accepted.
+type Number struct {
+	E164    string // e.g. +393331234567
+	Country string // ISO region code
+	Kind    Kind
+}
+
+// Errors returned by Classify. They are stable so callers can map them to reason codes.
 var (
 	ErrEmpty      = errors.New("empty number")
 	ErrCharacters = errors.New("number contains characters other than digits, spaces, '.', '-', '(', ')' and a leading '+'")
-	ErrNotItalian = errors.New("not an Italian number (+39)")
-	ErrNotAllowed = errors.New("not an Italian fixed-line or mobile number (premium, toll-free, short, emergency and service numbers are never called)")
-	ErrLength     = errors.New("wrong length for an Italian fixed-line or mobile number")
+	ErrInvalid    = errors.New("not a valid phone number")
+	ErrEmergency  = errors.New("emergency numbers are never called")
+	ErrCountry    = errors.New("country not allowed")
+	ErrKind       = errors.New("number type not allowed")
 )
 
-// NormalizeItalian turns user input such as "+39 333 123 4567", "0039 02 1234567", "02-1234567" or
-// "3331234567" into E.164 ("+393331234567") and classifies it. Anything that is not an Italian
-// geographic (fixed-line) or mobile number is rejected.
-//
-// The rule follows the Italian numbering plan by prefix of the national number:
-//   - "0"  geographic numbers, 6 to 11 digits including the leading 0 (kept after +39);
-//   - "3"  mobile numbers, 9 or 10 digits.
-//
-// Every other prefix is refused, which excludes emergency and public-utility numbers (1xx),
-// operator services (4xx), Internet access (7xx), toll-free (80x), shared cost (84x), premium
-// rate (89x, 16x), VoIP (55) and anything else. Refusing by default is deliberate: a number type
-// we don't recognise is not a number an agent should be able to dial.
-func NormalizeItalian(input string) (string, Kind, error) {
+// Classify turns user input such as "+39 333 123 4567", "0039 02 1234567" or "02-1234567" (in
+// the default country) into E.164, and checks that it is a valid number of an allowed country and
+// type. Refusing by default is deliberate: a number libphonenumber can't classify is not a
+// number an agent should be able to dial.
+func Classify(input string, d Dialable) (Number, error) {
 	s := strings.TrimSpace(input)
 	if s == "" {
-		return "", "", ErrEmpty
+		return Number{}, ErrEmpty
 	}
-	var b strings.Builder
+	// Digits and separators only: no letters (vanity numbers), no extensions, no codes.
 	for i, r := range s {
+		switch {
+		case r >= '0' && r <= '9', r == '+' && i == 0, r == ' ' || r == '.' || r == '-' || r == '(' || r == ')':
+		default:
+			return Number{}, ErrCharacters
+		}
+	}
+	region := d.DefaultCountry
+	if region == "" {
+		region = "ZZ" // unknown: only numbers with an international prefix parse
+	}
+	if !strings.HasPrefix(s, "+") && phonenumbers.ConnectsToEmergencyNumber(s, region) {
+		return Number{}, ErrEmergency
+	}
+	num, err := phonenumbers.Parse(s, region)
+	if err != nil || !phonenumbers.IsValidNumber(num) {
+		return Number{}, ErrInvalid
+	}
+	country := phonenumbers.GetRegionCodeForNumber(num)
+	if !slices.Contains(d.Countries, country) {
+		return Number{}, fmt.Errorf("%w: %s", ErrCountry, country)
+	}
+	var kind Kind
+	switch t := phonenumbers.GetNumberType(num); t {
+	case phonenumbers.FIXED_LINE:
+		kind = KindFixed
+	case phonenumbers.MOBILE:
+		kind = KindMobile
+	case phonenumbers.FIXED_LINE_OR_MOBILE:
+		kind = KindFixedOrMobile
+	case phonenumbers.TOLL_FREE:
+		kind = KindTollFree
+	default:
+		return Number{}, fmt.Errorf("%w: %s", ErrKind, typeName(t))
+	}
+	if !d.allows(kind) {
+		return Number{}, fmt.Errorf("%w: %s", ErrKind, kind)
+	}
+	return Number{E164: phonenumbers.Format(num, phonenumbers.E164), Country: country, Kind: kind}, nil
+}
+
+func typeName(t phonenumbers.PhoneNumberType) string {
+	switch t {
+	case phonenumbers.PREMIUM_RATE:
+		return "premium_rate"
+	case phonenumbers.SHARED_COST:
+		return "shared_cost"
+	case phonenumbers.VOIP:
+		return "voip"
+	case phonenumbers.PERSONAL_NUMBER:
+		return "personal"
+	case phonenumbers.PAGER:
+		return "pager"
+	case phonenumbers.UAN:
+		return "uan"
+	case phonenumbers.VOICEMAIL:
+		return "voicemail"
+	}
+	return "unknown"
+}
+
+// ValidCountry reports whether c is a region code libphonenumber knows.
+func ValidCountry(c string) bool { return phonenumbers.GetSupportedRegions()[c] }
+
+// NormalizeBlock turns a blocklist entry, a number or a prefix in international form ("+39 02",
+// "+44 20 7946 0000"), into its digits after the "+".
+func NormalizeBlock(s string) (string, error) {
+	var b strings.Builder
+	for i, r := range strings.TrimSpace(s) {
 		switch {
 		case r >= '0' && r <= '9':
 			b.WriteRune(r)
 		case r == '+' && i == 0:
 			b.WriteRune(r)
 		case r == ' ' || r == '.' || r == '-' || r == '(' || r == ')':
-			// separators
 		default:
-			return "", "", ErrCharacters
+			return "", fmt.Errorf("blocklist entry %q: digits and separators only", s)
 		}
 	}
-	d := b.String()
-
-	var national string
-	switch {
-	case strings.HasPrefix(d, "+"):
-		if !strings.HasPrefix(d, "+39") {
-			return "", "", ErrNotItalian
-		}
-		national = d[3:]
-	case strings.HasPrefix(d, "0039"):
-		national = d[4:]
-	case strings.HasPrefix(d, "00"):
-		return "", "", ErrNotItalian // international prefix to another country
-	default:
-		national = d // dialled as a national number
+	out := b.String()
+	if !strings.HasPrefix(out, "+") || len(out) < 2 || len(out) > 16 {
+		return "", fmt.Errorf("blocklist entry %q: write it in international form, starting with +", s)
 	}
-	if national == "" {
-		return "", "", ErrLength
-	}
-
-	var kind Kind
-	switch national[0] {
-	case '0':
-		if len(national) < 6 || len(national) > 11 {
-			return "", "", ErrLength
-		}
-		kind = KindFixed
-	case '3':
-		if len(national) < 9 || len(national) > 10 {
-			return "", "", ErrLength
-		}
-		kind = KindMobile
-	default:
-		return "", "", ErrNotAllowed
-	}
-	return "+39" + national, kind, nil
+	return out, nil
 }
 
 // Entry is one allowlisted number with a human label ("Marco (mobile)").
@@ -107,17 +168,18 @@ type Entry struct {
 // maxName bounds an entry's name, as the callee size limit's default does.
 const maxName = 100
 
-// ValidateAllowlist normalises every entry and rejects invalid numbers, empty or duplicate labels,
-// duplicate numbers, and names or kinds that aren't valid callees.
-func ValidateAllowlist(entries []Entry) ([]Entry, error) {
+// ValidateAllowlist normalises every entry and rejects numbers that aren't dialable, empty or
+// duplicate labels, duplicate numbers, and names or kinds that aren't valid callees.
+func ValidateAllowlist(entries []Entry, d Dialable) ([]Entry, error) {
 	out := make([]Entry, 0, len(entries))
 	seenNum := map[string]bool{}
 	seenLabel := map[string]bool{}
 	for i, e := range entries {
-		n, _, err := NormalizeItalian(e.Number)
+		num, err := Classify(e.Number, d)
 		if err != nil {
 			return nil, fmt.Errorf("allowlist entry %d (%q): %w", i+1, e.Label, err)
 		}
+		n := num.E164
 		label := strings.TrimSpace(e.Label)
 		if label == "" {
 			return nil, fmt.Errorf("allowlist entry %d (%s): empty label", i+1, n)

@@ -4,12 +4,12 @@ Let an AI agent make phone calls. dialout is an MCP server (and a command-line t
 
 - **Swappable voice engines:** Amazon Nova 2 Sonic (default), ElevenLabs Agents, OpenAI Realtime.
 - **No inbound ports:** Twilio's audio arrives through a Cloudflare tunnel that runs only during a call. It's a quick tunnel by default (no account or domain needed), or your own hostname.
-- **A policy in front of every call:** a kill switch, an allowlist, rate limits and size limits, checked by the server and not by the agent that asks.
+- **A policy in front of every call:** a kill switch, allowed countries and number types, an allowlist (or open dialling with calling hours and per-number limits), a blocklist, rate limits and size limits, all checked by the server and not by the agent that asks.
 - **Transcripts always, audio only if you want it.** They're stored in a folder or an S3 bucket, uploaded during the call, and recovered after a crash.
 - **Your prompt:** a built-in Italian prompt, replaceable block by block with a template file.
 - **One small image:** the static binary plus cloudflared, non-root, read-only, MCP over HTTP with a bearer token.
 
-> **Status: early.** The call engine has been used on real calls. The MCP server, the YAML configuration and the prompt file are new and tested only offline. The policy accepts only **Italian** fixed and mobile numbers, and the built-in prompt is Italian.
+> **Status: early.** The call engine has been used on real calls. The MCP server, the YAML configuration and the prompt file are new and tested only offline. By default only **Italian** fixed and mobile numbers on the allowlist can be called, and the built-in prompt is Italian.
 
 ## How a call goes
 
@@ -84,6 +84,23 @@ One YAML file, `dialout.yaml`. It's found from `-config`, else `$DIALOUT_CONFIG`
 - **Reloaded before every call:** the policy and the prompt file, so you can change the allowlist or tune the prompt without a restart. Other settings apply at the next start.
 - **Data:** the spool, the stored calls and the server's history go under `$DIALOUT_DATA` (`/data` in the image), else `~/.dialout`, unless `storage` says otherwise.
 
+## Who can be called
+
+The policy is checked on every `place_call`, and the configuration's policy section is re-read each time.
+
+1. **Dialable numbers, in every mode:** `countries` (ISO codes, `[IT]` by default) and `number_types` (`fixed`, `mobile`, and optionally `toll_free`). Numbers are classified with [libphonenumber](https://github.com/nyaruka/phonenumbers)'s numbering plans:
+   - premium-rate, shared-cost, VoIP, personal, pager and unclassifiable numbers are never called;
+   - emergency and short numbers aren't valid full numbers, so they're refused too;
+   - countries are matched by region, not by calling code: `+1 876` is Jamaica, so `countries: [US, CA]` doesn't reach it;
+   - where the numbering plan can't tell fixed from mobile (the US, Canada), a number passes if either type is allowed.
+2. **The blocklist:** numbers or prefixes, in international form, never called in any mode.
+3. **The mode:**
+   - `allowlist` (default): only the listed numbers.
+   - `open`: any dialable number. The allowlist still gives labels and default callee and kind. Numbers *not* on the allowlist also get calling `hours` (default `09:00-21:00` in `timezone`) and `per_number_per_day` (default 2), so a confused agent can't ring a stranger at night or call the same person over and over.
+4. **The limits:** one call at a time, `per_hour`, `per_day`, call length and brief sizes.
+
+Open mode removes the main guard: an agent manipulated by something it read could call anyone in the allowed countries. Keep the MCP client's approval for every call, Twilio's geographic permissions set to the same countries, and a small prepaid balance. When calling strangers, consider having the agent say up front that it's an assistant, in the prompt file. Disclosure and recording rules vary by country.
+
 ## Prompt file
 
 `prompt.file` points to a Go `text/template` file of named blocks. The blocks you leave out come from the [built-in file](prompts/builtin.tmpl). [examples/prompt-en.tmpl](examples/prompt-en.tmpl) is a complete English prompt.
@@ -114,7 +131,7 @@ The image doesn't need AWS credentials unless you use Sonic or S3. In that case,
 
 ## Security model
 
-- The policy inside the server is the guard: the kill switch, the allowlist (premium, short and emergency numbers are refused even if listed), rate limits and one call at a time. The agent that asks can't change it, and the token only stops other software from using it.
+- The policy inside the server is the guard: the kill switch, the allowed countries and number types (premium, short and emergency numbers are refused even if listed), the blocklist, the allowlist or open mode's hours and per-number limits, rate limits and one call at a time. The agent that asks can't change it, and the token only stops other software from using it.
 - The transcript is what a third party said. MCP clients should treat it as data, never as instructions.
 - The agent never gives payment details and never pays: the built-in prompt says so, and nothing in dialout can pay.
 - cloudflared gets an allowlisted environment (no keys). The Twilio WebSocket is accepted only with a one-time token, a valid signature and the expected call.

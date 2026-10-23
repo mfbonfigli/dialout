@@ -103,7 +103,8 @@ func (s *Server) MCP() *mcp.Server {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "place_call",
 		Description: "Place a phone call. A voice agent calls the number, talks to whoever answers about the objective, and hangs up. " +
-			"Returns the call_id at once; follow with get_call. Only numbers allowed by the policy can be called. " +
+			"Returns the call_id at once; follow with get_call. Only numbers allowed by the policy can be called (see list_numbers): " +
+			"in allowlist mode the listed ones, in open mode any number of the allowed countries and types, within the calling hours. " +
 			"Example brief for a pizzeria: callee \"la pizzeria Da Mario\", kind business, opening \"Buonasera, vorrei ordinare una pizza da asporto.\", " +
 			"objective \"Una pizza margherita da asporto, da ritirare alle 22.\", limits \"Va bene dalle 21:30 alle 23. Fino a 20 euro.\", " +
 			"context \"La prenotazione è a nome di Marco.\"",
@@ -156,13 +157,19 @@ type number struct {
 }
 
 type listNumbersOut struct {
-	Enabled        bool     `json:"enabled"`
-	Mode           string   `json:"mode"`
-	Numbers        []number `json:"numbers"`
-	MaxMinutes     int      `json:"max_minutes"`
-	CallsLeftHour  *int     `json:"calls_left_this_hour,omitempty" jsonschema:"absent when there is no hourly limit"`
-	CallsLeftDay   *int     `json:"calls_left_today,omitempty" jsonschema:"absent when there is no daily limit"`
-	CallInProgress bool     `json:"call_in_progress"`
+	Enabled   bool     `json:"enabled"`
+	Mode      string   `json:"mode" jsonschema:"allowlist: only the numbers listed; open: any number of the countries and types below"`
+	Numbers   []number `json:"numbers" jsonschema:"the allowlist: labels place_call accepts as to"`
+	Countries []string `json:"countries" jsonschema:"ISO codes of the countries numbers may be in"`
+	Types     []string `json:"number_types" jsonschema:"the number types that may be called"`
+	// Open mode, numbers not on the allowlist.
+	Hours           string `json:"calling_hours,omitempty" jsonschema:"open mode: when numbers not on the allowlist may be called"`
+	PerNumberPerDay int    `json:"per_number_per_day,omitempty" jsonschema:"open mode: calls a day to the same number not on the allowlist"`
+
+	MaxMinutes     int  `json:"max_minutes"`
+	CallsLeftHour  *int `json:"calls_left_this_hour,omitempty" jsonschema:"absent when there is no hourly limit"`
+	CallsLeftDay   *int `json:"calls_left_today,omitempty" jsonschema:"absent when there is no daily limit"`
+	CallInProgress bool `json:"call_in_progress"`
 }
 
 func (s *Server) listNumbers(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, listNumbersOut, error) {
@@ -171,7 +178,15 @@ func (s *Server) listNumbers(ctx context.Context, _ *mcp.CallToolRequest, _ stru
 		return nil, listNumbersOut{}, fmt.Errorf("configuration: %w", err)
 	}
 	p := cfg.PolicyConfig()
-	out := listNumbersOut{Enabled: p.Enabled, Mode: string(p.Mode), MaxMinutes: p.MaxCallSeconds / 60, Numbers: []number{}}
+	out := listNumbersOut{Enabled: p.Enabled, Mode: string(p.Mode), MaxMinutes: p.MaxCallSeconds / 60, Numbers: []number{},
+		Countries: p.Dialable.Countries}
+	for _, k := range p.Dialable.Kinds {
+		out.Types = append(out.Types, string(k))
+	}
+	if p.Mode == policy.ModeOpen {
+		out.Hours = p.Hours.String() + " (" + cfg.Location.String() + ")"
+		out.PerNumberPerDay = p.MaxPerNumberPerDay
+	}
 	for _, e := range p.Allowlist {
 		out.Numbers = append(out.Numbers, number{Label: e.Label, Number: e.Number, Name: e.Name, Kind: e.Kind})
 	}
@@ -180,7 +195,7 @@ func (s *Server) listNumbers(ctx context.Context, _ *mcp.CallToolRequest, _ stru
 		if limit <= 0 {
 			return nil
 		}
-		n := max(0, limit-len(s.Index.Started(now.Add(-since))))
+		n := max(0, limit-len(s.Index.Placed(now.Add(-since))))
 		return &n
 	}
 	out.CallsLeftHour, out.CallsLeftDay = left(p.MaxPerHour, time.Hour), left(p.MaxPerDay, 24*time.Hour)
@@ -193,7 +208,7 @@ func (s *Server) listNumbers(ctx context.Context, _ *mcp.CallToolRequest, _ stru
 // --- place_call
 
 type placeCallIn struct {
-	To         string `json:"to" jsonschema:"the number (+39…) or a label from list_numbers"`
+	To         string `json:"to" jsonschema:"a label from list_numbers, or a number in international form (+39…)"`
 	Callee     string `json:"callee,omitempty" jsonschema:"who answers, as the agent should refer to them: 'la pizzeria Da Mario', 'Anna, la sorella di Marco'. Leave out when the number's default name says it"`
 	Kind       string `json:"kind,omitempty" jsonschema:"business (shops, restaurants, offices: they don't know the owner) or personal (friends, family). Sets the register. Leave out when the number has a default"`
 	Opening    string `json:"opening,omitempty" jsonschema:"the first sentence, spoken word for word, as a person would start the call; optional"`
@@ -220,7 +235,7 @@ func (s *Server) placeCall(ctx context.Context, _ *mcp.CallToolRequest, in place
 	d := policy.Decide(cfg.PolicyConfig(), policy.Request{
 		To: in.To, Callee: in.Callee, Kind: in.Kind, Opening: in.Opening, Objective: in.Objective,
 		Limits: in.Limits, Context: in.Context, MaxMinutes: in.MaxMinutes,
-	}, policy.State{Active: s.active != nil, Started: s.Index.Started(now.Add(-24 * time.Hour))}, now)
+	}, policy.State{Active: s.active != nil, Placed: s.Index.Placed(now.Add(-24 * time.Hour))}, now)
 	if !d.Allowed {
 		s.Log.Warn("call refused", "reason", d.Reason, "detail", d.Detail)
 		return nil, placeCallOut{}, fmt.Errorf("refused (%s): %s", d.Reason, d.Detail)

@@ -63,9 +63,11 @@ type harness struct {
 	release chan struct{} // closed: the fake calls end
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T) *harness { return newHarnessWith(t, testConfig) }
+
+func newHarnessWith(t *testing.T, text string) *harness {
 	t.Helper()
-	cfg, err := config.Parse([]byte(testConfig), t.TempDir())
+	cfg, err := config.Parse([]byte(text), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,5 +326,43 @@ func TestHTTP(t *testing.T) {
 	}
 	if RequireToken("", http.NotFoundHandler()) == nil {
 		t.Error("nil handler")
+	}
+}
+
+func TestOpenMode(t *testing.T) {
+	open := strings.Replace(testConfig, "  enabled: true\n", "  enabled: true\n  mode: open\n  countries: [IT, IE]\n  hours: \"\"\n", 1)
+	open = strings.Replace(open, "limits: {per_hour: 2}", "limits: {per_hour: 5, per_number_per_day: 1}", 1)
+	h := newHarnessWith(t, open)
+	close(h.release)
+
+	var list listNumbersOut
+	h.tool("list_numbers", nil, &list, false)
+	if list.Mode != "open" || strings.Join(list.Countries, ",") != "IT,IE" || strings.Join(list.Types, ",") != "fixed,mobile" ||
+		!strings.HasPrefix(list.Hours, "any time") || list.PerNumberPerDay != 1 {
+		t.Errorf("list_numbers = %+v", list)
+	}
+
+	// A number not on the allowlist, once a day.
+	var placed placeCallOut
+	var rec Record
+	args := map[string]any{"to": "+353 85 123 4567", "objective": "x", "callee": "Seán", "kind": "personal"}
+	h.tool("place_call", args, &placed, false)
+	h.tool("get_call", map[string]any{"call_id": placed.CallID, "wait_seconds": 10}, &rec, false)
+	if rec.To != "+353851234567" || rec.Label != "" || rec.Callee != "Seán" || rec.Status != "completed" {
+		t.Errorf("open call = %+v", rec)
+	}
+	if msg := h.tool("place_call", args, nil, true); !strings.Contains(msg, "number_daily_limit") {
+		t.Errorf("second call to the same number: %s", msg)
+	}
+	// Countries and types still apply.
+	for to, want := range map[string]string{"+44 20 7946 0000": "country_not_allowed", "899 123 456": "number_type_not_allowed"} {
+		if msg := h.tool("place_call", map[string]any{"to": to, "objective": "x"}, nil, true); !strings.Contains(msg, want) {
+			t.Errorf("%s: %s, want %s", to, msg, want)
+		}
+	}
+	// Listed numbers have no per-number limit.
+	for range 2 {
+		h.tool("place_call", map[string]any{"to": "Pizzeria", "objective": "x"}, &placed, false)
+		h.tool("get_call", map[string]any{"call_id": placed.CallID, "wait_seconds": 10}, &rec, false)
 	}
 }

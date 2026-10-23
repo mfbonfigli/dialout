@@ -79,6 +79,11 @@ func TestLoad(t *testing.T) {
 		p.MaxPerHour != 0 || p.MaxPerDay != 20 || p.MaxCallSeconds != 300 || p.MaxCallee != 100 {
 		t.Errorf("policy = %+v", p)
 	}
+	// The dialling defaults: Italy, fixed and mobile; for open mode, 09:00-21:00 and 2 a day.
+	if strings.Join(p.Dialable.Countries, ",") != "IT" || p.Dialable.DefaultCountry != "IT" || len(p.Dialable.Kinds) != 2 ||
+		p.Hours.String() != "09:00-21:00" || p.MaxPerNumberPerDay != 2 || p.Location != c.Location || len(p.Blocklist) != 0 {
+		t.Errorf("dialling policy = %+v", p)
+	}
 	if err := c.CheckServer(); err == nil {
 		t.Error("server without a token accepted")
 	}
@@ -113,11 +118,45 @@ func TestErrors(t *testing.T) {
 		"ssm":           {strings.Replace(base, "enabled: true", "enabled: true\n  source: ssm", 1), "policy.source"},
 		"timezone":      {strings.Replace(base, "Europe/Rome", "Europe/Atlantis", 1), "timezone"},
 		"prompt file":   {base + "prompt:\n  file: missing.tmpl\n", "prompt file"},
+		"mode":          {strings.Replace(base, "enabled: true", "enabled: true\n  mode: everyone", 1), "policy.mode"},
+		"country":       {strings.Replace(base, "enabled: true", "enabled: true\n  countries: [IT, XX]", 1), "XX"},
+		"no countries":  {strings.Replace(base, "enabled: true", "enabled: true\n  countries: []", 1), "policy.countries is empty"},
+		"default":       {strings.Replace(base, "enabled: true", "enabled: true\n  default_country: Italy", 1), "default_country"},
+		"number type":   {strings.Replace(base, "enabled: true", "enabled: true\n  number_types: [mobile, premium]", 1), "premium"},
+		"blocklist":     {strings.Replace(base, "enabled: true", "enabled: true\n  blocklist: [\"02 1234\"]", 1), "policy.blocklist"},
+		"hours":         {strings.Replace(base, "enabled: true", "enabled: true\n  hours: 9-21", 1), "policy.hours"},
+		"listed abroad": {strings.Replace(base, "enabled: true", "enabled: true\n  countries: [IE]", 1), "country not allowed: IT"},
+		"per number":    {strings.Replace(base, "per_hour: 0", "per_number_per_day: -1", 1), "per_number_per_day"},
 	} {
 		_, err := Parse([]byte(c.text), t.TempDir())
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: error %v, want it to mention %q", name, err, c.want)
 		}
+	}
+}
+
+func TestOpenPolicy(t *testing.T) {
+	t.Setenv("T_SID", "AC123")
+	t.Setenv("T_SECRET", "x")
+	t.Setenv("T_TOKEN", "x")
+	text := strings.Replace(sample, "prompt:\n  file: prompt.tmpl\n", "", 1)
+	text = strings.Replace(text, "enabled: true", `enabled: true
+  mode: open
+  countries: [it, IE]
+  number_types: [fixed, mobile, toll_free]
+  blocklist: ["+39 02 1234 5678", "+353 1"]
+  hours: "08:00-20:00"`, 1)
+	text = strings.Replace(text, "per_hour: 0", "per_hour: 0\n    per_number_per_day: 1", 1)
+	text = strings.Replace(text, "02 1234 5678\"\n      label: Pizzeria", "+353 85 123 4567\"\n      label: Dublin", 1)
+	c, err := Parse([]byte(text), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := c.PolicyConfig()
+	if p.Mode != "open" || strings.Join(p.Dialable.Countries, ",") != "IT,IE" || len(p.Dialable.Kinds) != 3 ||
+		strings.Join(p.Blocklist, ",") != "+390212345678,+3531" || p.Hours.String() != "08:00-20:00" || p.MaxPerNumberPerDay != 1 ||
+		p.Allowlist[1].Number != "+353851234567" {
+		t.Errorf("open policy = %+v", p)
 	}
 }
 

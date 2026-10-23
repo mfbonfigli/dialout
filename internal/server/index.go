@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mfbonfigli/dialout/internal/call"
+	"github.com/mfbonfigli/dialout/internal/policy"
 	"github.com/mfbonfigli/dialout/internal/voice"
 )
 
@@ -119,14 +120,14 @@ func (x *Index) Get(id string) (Record, bool) {
 	return Record{}, false
 }
 
-// Started returns the start times of the calls placed since a time, for the rate limits.
-func (x *Index) Started(since time.Time) []time.Time {
+// Placed returns the calls placed since a time, for the rate limits.
+func (x *Index) Placed(since time.Time) []policy.Placed {
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	var out []time.Time
+	var out []policy.Placed
 	for _, r := range x.recs {
 		if !r.Created.Before(since) {
-			out = append(out, r.Created)
+			out = append(out, policy.Placed{Number: r.To, At: r.Created})
 		}
 	}
 	return out
