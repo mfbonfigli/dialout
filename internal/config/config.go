@@ -110,7 +110,6 @@ type Storage struct {
 type Server struct {
 	MCPListen string `yaml:"mcp_listen"` // MCP over HTTP
 	MCPToken  string `yaml:"mcp_token"`  // the bearer token every HTTP request must carry
-	APISocket string `yaml:"api_socket"` // reserved for a Unix-socket API; not supported yet
 }
 
 type Policy struct {
@@ -318,9 +317,6 @@ func (c *Config) check(unset map[string][]string) error {
 	}
 
 	need("server.mcp_listen", c.Server.MCPListen)
-	if c.Server.APISocket != "" {
-		errs = append(errs, errors.New("server.api_socket isn't supported yet"))
-	}
 
 	if c.Policy.Source != "file" {
 		errs = append(errs, fmt.Errorf("policy.source: %q isn't supported; use file", c.Policy.Source))

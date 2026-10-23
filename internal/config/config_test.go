@@ -111,7 +111,6 @@ func TestErrors(t *testing.T) {
 		"bad kind":      {strings.Replace(base, "kind: personal", "kind: friend", 1), "kind"},
 		"long call":     {strings.Replace(base, "per_hour: 0", "max_minutes: 8", 1), "max_minutes"},
 		"ssm":           {strings.Replace(base, "enabled: true", "enabled: true\n  source: ssm", 1), "policy.source"},
-		"socket":        {base + "server:\n  api_socket: /run/x.sock\n", "api_socket"},
 		"timezone":      {strings.Replace(base, "Europe/Rome", "Europe/Atlantis", 1), "timezone"},
 		"prompt file":   {base + "prompt:\n  file: missing.tmpl\n", "prompt file"},
 	} {
