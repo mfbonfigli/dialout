@@ -43,7 +43,8 @@ tunnel:
   listen: 127.0.0.1:8090               # the stream endpoint the tunnel forwards to
 
 storage:
-  record_audio: false                  # the transcript and meta.json are always kept
+  enabled: true                        # false: nothing on disk, neither transcripts nor audio
+  record_audio: false                  # with enabled, the transcript and meta.json are always kept
   segment_seconds: 60
   # Defaults: under $DIALOUT_DATA (/data in the container), else ~/.dialout.
   # spool: /data/spool

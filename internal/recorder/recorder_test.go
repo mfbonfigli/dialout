@@ -537,3 +537,27 @@ func TestStartValidation(t *testing.T) {
 		t.Errorf("Recover on a missing spool = %v, %v", recs, err)
 	}
 }
+
+func TestDisabled(t *testing.T) {
+	spool := filepath.Join(t.TempDir(), "spool")
+	r, err := Start(Config{Disabled: true, SpoolDir: spool}, "call-x", started, []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	feed(r, 0, 5000, 100)
+	r.AgentQueued("a1", fill(1600, 200))
+	r.AgentPlayed("a1")
+	r.AgentCleared()
+	if err := r.Transcript("agent", "Buongiorno"); err != nil || r.SetMeta([]byte(`{}`)) != nil {
+		t.Errorf("transcript or meta: %v", err)
+	}
+	if res, err := r.Finish(context.Background(), []byte(`{}`)); err != nil || res != (Result{}) {
+		t.Errorf("Finish = %+v, %v", res, err)
+	}
+	if _, err := os.Stat(spool); !os.IsNotExist(err) {
+		t.Errorf("spool created: %v", err)
+	}
+	if recs, err := Recover(context.Background(), Config{Disabled: true}, nil); err != nil || recs != nil {
+		t.Errorf("Recover = %v, %v", recs, err)
+	}
+}

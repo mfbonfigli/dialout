@@ -95,7 +95,7 @@ func Build(cfg *config.Config, opt Options) (*App, error) {
 	}
 	a.Recorder = recorder.Config{
 		SpoolDir: cfg.Storage.Spool, Segment: time.Duration(cfg.Storage.SegmentSeconds) * time.Second,
-		Audio: cfg.Storage.RecordAudio, Uploader: up, Log: log,
+		Audio: cfg.Storage.RecordAudio, Disabled: !cfg.Storage.Enabled, Uploader: up, Log: log,
 	}
 	return a, nil
 }

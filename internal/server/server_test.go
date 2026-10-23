@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -363,5 +364,25 @@ func TestOpenMode(t *testing.T) {
 	for range 2 {
 		h.tool("place_call", map[string]any{"to": "Pizzeria", "objective": "x"}, &placed, false)
 		h.tool("get_call", map[string]any{"call_id": placed.CallID, "wait_seconds": 10}, &rec, false)
+	}
+}
+
+func TestPrivateHistory(t *testing.T) {
+	h := newHarness(t)
+	h.s.Index.Private = true
+	close(h.release)
+	var placed placeCallOut
+	var rec Record
+	h.tool("place_call", map[string]any{"to": "Pizzeria", "objective": "x"}, &placed, false)
+	h.tool("get_call", map[string]any{"call_id": placed.CallID, "wait_seconds": 10}, &rec, false)
+	if len(rec.Transcript) != 2 || rec.Outcome == nil {
+		t.Errorf("get_call should still return the transcript and outcome: %+v", rec)
+	}
+	b, err := os.ReadFile(h.s.Index.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "Pronto?") || strings.Contains(string(b), "Arriva alle 20") || !strings.Contains(string(b), placed.CallID) {
+		t.Errorf("history file = %s", b)
 	}
 }

@@ -47,8 +47,11 @@ func (r *Record) Final() bool { return slices.Contains(finalStatuses, r.Status) 
 // rate limits. It holds transcripts, so the file is private to its owner.
 type Index struct {
 	path string
-	mu   sync.Mutex
-	recs []Record // oldest first
+	// Private keeps transcripts and outcomes out of the file: they stay in memory, so get_call
+	// returns them until a restart (storage.enabled: false).
+	Private bool
+	mu      sync.Mutex
+	recs    []Record // oldest first
 }
 
 // OpenIndex reads the history. Calls it still shows as running were cut by a crash: they become
@@ -135,7 +138,15 @@ func (x *Index) Placed(since time.Time) []policy.Placed {
 
 // save writes the file atomically. The caller holds mu.
 func (x *Index) save() error {
-	b, err := json.MarshalIndent(x.recs, "", "  ")
+	recs := x.recs
+	if x.Private {
+		recs = make([]Record, len(x.recs))
+		for i, r := range x.recs {
+			r.Transcript, r.Outcome = nil, nil
+			recs[i] = r
+		}
+	}
+	b, err := json.MarshalIndent(recs, "", "  ")
 	if err != nil {
 		return err
 	}

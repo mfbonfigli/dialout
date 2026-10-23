@@ -5,7 +5,7 @@ Let an AI agent make phone calls. dialout is an MCP server (and a command-line t
 - **Swappable voice engines:** Amazon Nova 2 Sonic (default), ElevenLabs Agents, OpenAI Realtime.
 - **No inbound ports:** Twilio's audio arrives through a Cloudflare tunnel that runs only during a call. It's a quick tunnel by default (no account or domain needed), or your own hostname.
 - **A policy in front of every call:** a kill switch, allowed countries and number types, an allowlist (or open dialling with calling hours and per-number limits), a blocklist, rate limits and size limits, all checked by the server and not by the agent that asks.
-- **Transcripts always, audio only if you want it.** They're stored in a folder or an S3 bucket, uploaded during the call, and recovered after a crash.
+- **Transcripts by default, audio only if you want it, or nothing at all.** They're stored in a folder or an S3 bucket, uploaded during the call, and recovered after a crash. With `storage.enabled: false` nothing of the conversation touches the disk.
 - **Your prompt:** a built-in Italian prompt, replaceable block by block with a template file.
 - **One small image:** the static binary plus cloudflared, non-root, read-only, MCP over HTTP with a bearer token.
 
@@ -35,7 +35,7 @@ cp examples/secrets.env.example ~/.config/dialout/secrets.env
 go run ./cmd/dialout call -to "Marco (mobile)" -objective "Chiedigli a che ora arriva stasera."
 ```
 
-The command shows a summary, asks for confirmation, prints the conversation as it happens, and stores the transcript under `~/.dialout/calls`. Run `dialout call -h` for the flags: `-callee`, `-kind`, `-engine`, `-voice`, `-record`, `-prompt` and more.
+The command shows a summary, asks for confirmation, prints the conversation as it happens, and stores the transcript under `~/.dialout/calls`. Run `dialout call -h` for the flags: `-callee`, `-kind`, `-engine`, `-voice`, `-record`, `-no-storage`, `-prompt` and more.
 
 ## MCP
 
@@ -83,6 +83,7 @@ One YAML file, `dialout.yaml`. It's found from `-config`, else `$DIALOUT_CONFIG`
 - **Strict:** an unknown key or a wrong type is an error. Everything is checked at start-up, the prompt file included.
 - **Reloaded before every call:** the policy and the prompt file, so you can change the allowlist or tune the prompt without a restart. Other settings apply at the next start.
 - **Data:** the spool, the stored calls and the server's history go under `$DIALOUT_DATA` (`/data` in the image), else `~/.dialout`, unless `storage` says otherwise.
+- **Storing nothing:** with `storage.enabled: false` there's no spool, no `meta.json`, no transcript and no audio on disk, and the server's history keeps only what the rate limits need (number, times, status). `get_call` still returns the transcript and the outcome from memory, until the server restarts.
 
 ## Who can be called
 

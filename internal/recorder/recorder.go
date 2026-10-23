@@ -55,6 +55,7 @@ type Config struct {
 	SpoolDir string        // a directory per call is created inside, e.g. /data/spool
 	Segment  time.Duration // segment length, DefaultSegment when 0
 	Audio    bool          // record the audio too; without it only the transcript and meta.json
+	Disabled bool          // store nothing at all: no spool, no uploads; every method does nothing
 	Uploader Uploader
 	Log      *slog.Logger // slog.Default() when nil
 }
@@ -99,6 +100,7 @@ type state struct {
 
 // Recorder records one call. Its methods are safe to call from the bridge's goroutines.
 type Recorder struct {
+	off        bool // Config.Disabled
 	cfg        Config
 	st         state
 	dir        string
@@ -134,6 +136,9 @@ type job struct {
 // meta.json so far) and starts the upload worker. Audio times are relative to the start of the
 // Twilio stream.
 func Start(cfg Config, callID string, started time.Time, meta []byte) (*Recorder, error) {
+	if cfg.Disabled {
+		return &Recorder{off: true}, nil
+	}
 	if err := cfg.normalize(); err != nil {
 		return nil, err
 	}
@@ -192,6 +197,9 @@ func (r *Recorder) Prefix() string { return r.st.Prefix }
 // (milliseconds since the stream started). It also advances the stream clock that places
 // everything else.
 func (r *Recorder) Callee(tsMillis int64, pcm []int16) {
+	if r.off {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.finished {
@@ -212,6 +220,9 @@ func (r *Recorder) Callee(tsMillis int64, pcm []int16) {
 // AgentQueued records agent audio sent to Twilio and followed by a mark with this name. It is
 // placed on the timeline once AgentPlayed reports the mark back.
 func (r *Recorder) AgentQueued(mark string, pcm []int16) {
+	if r.off {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.finished || !r.cfg.Audio {
@@ -222,6 +233,9 @@ func (r *Recorder) AgentQueued(mark string, pcm []int16) {
 
 // AgentPlayed handles Twilio's echo of a mark: the audio before it has played.
 func (r *Recorder) AgentPlayed(mark string) {
+	if r.off {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.finished || !r.cfg.Audio {
@@ -235,6 +249,9 @@ func (r *Recorder) AgentPlayed(mark string) {
 // AgentCleared handles a clear sent to Twilio (barge-in): the audio playing is cut now and the
 // audio still queued is dropped, as the callee never heard it.
 func (r *Recorder) AgentCleared() {
+	if r.off {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.finished || !r.cfg.Audio {
@@ -248,6 +265,9 @@ func (r *Recorder) AgentCleared() {
 // Transcript appends a final transcript line ({"t", "speaker", "text"}), timed by the stream clock
 // when it arrives.
 func (r *Recorder) Transcript(speaker, text string) error {
+	if r.off {
+		return nil
+	}
 	r.mu.Lock()
 	if r.finished {
 		r.mu.Unlock()
@@ -277,6 +297,9 @@ func (r *Recorder) Transcript(speaker, text string) error {
 
 // SetMeta replaces the call's meta.json in the spool, e.g. once the call is answered.
 func (r *Recorder) SetMeta(meta []byte) error {
+	if r.off {
+		return nil
+	}
 	if !json.Valid(meta) {
 		return errors.New("recorder: meta is not valid JSON")
 	}
@@ -379,6 +402,9 @@ type Result struct {
 // isn't uploaded yet, meta.json last. On success the call's spool directory is removed; on error
 // it is kept for Recover. The other methods do nothing after Finish.
 func (r *Recorder) Finish(ctx context.Context, meta []byte) (Result, error) {
+	if r.off {
+		return Result{}, nil
+	}
 	if !json.Valid(meta) {
 		return Result{}, errors.New("recorder: meta is not valid JSON")
 	}

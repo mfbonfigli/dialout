@@ -99,7 +99,8 @@ type Tunnel struct {
 }
 
 type Storage struct {
-	RecordAudio    bool   `yaml:"record_audio"` // the transcript and meta.json are always kept
+	Enabled        bool   `yaml:"enabled"`      // false: store nothing on disk, neither transcripts nor audio
+	RecordAudio    bool   `yaml:"record_audio"` // with Enabled, the transcript and meta.json are always kept
 	SegmentSeconds int    `yaml:"segment_seconds"`
 	Spool          string `yaml:"spool"`
 	Dir            string `yaml:"dir"`       // where finished calls go, unless S3Bucket
@@ -151,7 +152,7 @@ func defaults() Config {
 		Engine: Engine{Name: "sonic", Language: "it", Sonic: Sonic{Region: "eu-north-1", Voice: "beatrice"},
 			ElevenLabs: ElevenLabs{VoiceGender: "female"}},
 		Tunnel:  Tunnel{Listen: "127.0.0.1:8090"},
-		Storage: Storage{SegmentSeconds: 60},
+		Storage: Storage{Enabled: true, SegmentSeconds: 60},
 		Server:  Server{MCPListen: ":8080"},
 		Policy: Policy{Source: "file", Mode: string(policy.ModeAllowlist), Countries: []string{"IT"}, DefaultCountry: "IT",
 			NumberTypes: []string{"fixed", "mobile"}, Hours: "09:00-21:00", Limits: Limits{
@@ -323,6 +324,9 @@ func (c *Config) check(unset map[string][]string) error {
 	}
 	need("tunnel.listen", c.Tunnel.Listen)
 
+	if !c.Storage.Enabled && c.Storage.RecordAudio {
+		errs = append(errs, errors.New("storage.record_audio needs storage.enabled"))
+	}
 	if c.Storage.SegmentSeconds < 1 {
 		errs = append(errs, errors.New("storage.segment_seconds must be at least 1"))
 	}

@@ -789,3 +789,27 @@ var builtinCues = func() prompts.Cues {
 	}
 	return r.Cues
 }()
+
+func TestCallWithoutStorage(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	cfg := h.config()
+	cfg.Recorder.Disabled = true
+	resCh := startCall(h, ctx, cfg, params())
+	form := <-h.created
+	h.answer(ctx, form.Get("Twiml"), "CA1", true)
+	h.sonic.waitInput(t, func(name string, b map[string]any) bool { return name == "textInput" })
+	h.sonic.say("bye", 1600, "Perfetto, grazie. Buonasera!")
+	h.sonic.tool("t1", "end_call", `{"reason":"fatto"}`)
+	go h.sonic.endsWhenClosed(t)
+	res := waitResult(t, resCh)
+	if res.Err != nil || res.RecordingErr != nil || res.Recording.Prefix != "" || len(res.Transcript) == 0 {
+		t.Fatalf("result = %+v", res)
+	}
+	// Nothing on disk: no stored call, no spool.
+	for _, dir := range []string{h.out, cfg.Recorder.SpoolDir} {
+		if entries, _ := os.ReadDir(dir); len(entries) > 0 {
+			t.Errorf("%s holds %d entries", dir, len(entries))
+		}
+	}
+}

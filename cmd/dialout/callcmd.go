@@ -36,7 +36,8 @@ func cmdCall(args []string) int {
 	kind := fl.String("kind", "", "business or personal (default: the allowlist entry's kind)")
 	engineName := fl.String("engine", "", "sonic, elevenlabs or openai (default: engine.name)")
 	voiceName := fl.String("voice", "", "the engine's voice (default: the configured one)")
-	record := fl.Bool("record", false, "record the audio too (default: storage.record_audio); the transcript is always kept")
+	record := fl.Bool("record", false, "record the audio too (default: storage.record_audio)")
+	noStorage := fl.Bool("no-storage", false, "store nothing on disk: no transcript, no audio (default: storage.enabled)")
 	promptFile := fl.String("prompt", "", "prompt file for this call (default: prompt.file)")
 	minutes := fl.Int("max-minutes", 0, "maximum talk time in minutes; 0 = the policy maximum")
 	noTunnel := fl.Bool("no-tunnel", false, "start no cloudflared: tunnel.hostname already reaches tunnel.listen")
@@ -70,6 +71,9 @@ func cmdCall(args []string) int {
 	}
 	if flagSet(fl, "record") {
 		cfg.Storage.RecordAudio = *record
+	}
+	if *noStorage {
+		cfg.Storage.Enabled, cfg.Storage.RecordAudio = false, false
 	}
 	if *promptFile != "" {
 		if cfg.Prompts, err = prompts.Load(*promptFile); err != nil {
@@ -137,10 +141,13 @@ func cmdCall(args []string) int {
 	default:
 		fmt.Println("  tunnel: quick, on a random trycloudflare.com name")
 	}
-	if cfg.Storage.RecordAudio {
-		fmt.Println("  audio recording: on")
-	} else {
-		fmt.Println("  audio recording: off (transcript only)")
+	switch {
+	case !cfg.Storage.Enabled:
+		fmt.Println("  storage: off (nothing written to disk)")
+	case cfg.Storage.RecordAudio:
+		fmt.Println("  storage: transcript and audio")
+	default:
+		fmt.Println("  storage: transcript only")
 	}
 	if !*yes && !confirm("Go ahead? [y/N] ") {
 		fmt.Println("Cancelled.")

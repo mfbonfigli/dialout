@@ -65,7 +65,7 @@ type Config struct {
 	Streams  *Streams
 	Tunnel   Starter           // the public ingress for each call: Tunnel, QuickTunnel or NoTunnel
 	Engine   voice.Engine      // who holds the conversation
-	Recorder recorder.Config   // the transcript and meta.json always; the audio if Recorder.Audio
+	Recorder recorder.Config   // the transcript and meta.json, the audio if Recorder.Audio; nothing if Recorder.Disabled
 	Owner    string            // who the agent calls for
 	Voice    string            // the engine's voice; its default when empty
 	Prompts  *prompts.Set      // the prompt file; the built-in one when nil
@@ -241,8 +241,8 @@ func (r *run) run(ctx context.Context) {
 		r.res.Err, r.res.Status = err, "failed"
 		return
 	}
-	// The recording starts first, so every attempt leaves a meta.json, and no call is placed
-	// without a recorder.
+	// The call's record (meta.json and the transcript; the audio with Recorder.Audio) starts
+	// first, so every attempt leaves a meta.json. With Recorder.Disabled nothing is stored.
 	r.rec, err = recorder.Start(r.cfg.Recorder, r.p.CallID, now, r.metaJSON())
 	if err != nil {
 		r.res.Err, r.res.Status = err, "failed"

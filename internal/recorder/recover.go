@@ -24,6 +24,9 @@ type Recovered struct {
 // Run Recover at start-up, before any call starts. A spool directory that isn't a call's is left
 // alone and logged.
 func Recover(ctx context.Context, cfg Config, fix func(callID string, meta []byte) []byte) ([]Recovered, error) {
+	if cfg.Disabled {
+		return nil, nil
+	}
 	if err := cfg.normalize(); err != nil {
 		return nil, err
 	}

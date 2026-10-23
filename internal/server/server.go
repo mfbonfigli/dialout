@@ -62,6 +62,7 @@ func New(ctx context.Context, a *app.App) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	idx.Private = !a.Config.Storage.Enabled
 	s := &Server{App: a, Index: idx, Log: a.Log, ctx: ctx}
 	path := a.Config.Path
 	s.Load = func() (*config.Config, error) { return config.Load(path) }
@@ -241,7 +242,6 @@ func (s *Server) placeCall(ctx context.Context, _ *mcp.CallToolRequest, in place
 	}
 	brief := prompts.Brief{Callee: d.Callee, Kind: d.CalleeKind, Label: d.Label, Opening: in.Opening,
 		Objective: in.Objective, Limits: in.Limits, Context: in.Context}
-	// The voice is the owner's setting, not the caller's: a cloned voice could impersonate someone.
 	cc := s.App.CallConfig(cfg, nil, nil)
 	// The engine checks the voice and renders the prompt now, so a mistake comes back here
 	// instead of as a failed call.
@@ -265,9 +265,7 @@ func (s *Server) placeCall(ctx context.Context, _ *mcp.CallToolRequest, in place
 	ctx, cancel := context.WithCancel(s.ctx)
 	a := &active{id: id, cancel: cancel, done: make(chan struct{})}
 	s.active = a
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		defer cancel()
 		res := s.Run(ctx, cc, params)
 		s.finish(id, res)
@@ -275,7 +273,7 @@ func (s *Server) placeCall(ctx context.Context, _ *mcp.CallToolRequest, in place
 		s.active = nil
 		s.mu.Unlock()
 		close(a.done)
-	}()
+	})
 	s.Log.Info("call placed", "call_id", id, "to", d.Number, "label", d.Label)
 	return nil, placeCallOut{CallID: id, Status: "queued"}, nil
 }
