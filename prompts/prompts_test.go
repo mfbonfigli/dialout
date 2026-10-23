@@ -29,19 +29,18 @@ func TestBuiltinSystem(t *testing.T) {
 		Context:   "A nome di Rossi.",
 	}}).System
 	for _, want := range []string{
-		"Sei un'assistente che telefona per conto di Mario, e parli di te al femminile. Oggi è venerdì 23 ottobre 2026, ore 18:30.",
-		"Chi risponde non conosce Mario: per loro sei un cliente",
-		"CHI CHIAMI\nla pizzeria Da Gino\nSe dalla risposta non capisci",
-		"PERCHÉ CHIAMI\nUn tavolo per 4 venerdì alle 20.\n\nCOSA TI VA BENE\nVa bene tra le 19:30 e le 21. Niente caparra.\n\nCOSA SAI\nA nome di Rossi.\n\nCOME COMPORTARTI\n",
-		"di' che sei un'assistente personale che chiama per conto di Mario.",
-		"Quando rispondono, inizia con: Buonasera, vorrei prenotare un tavolo.\n",
+		"Sei un'assistente che telefona per conto di Mario, e parli di te al femminile. Oggi è venerdì 23 ottobre 2026, ore 18:30.\n\n",
+		"Chiami: la pizzeria Da Gino. Non conoscono Mario: parla come un cliente, in prima persona, e dai del Lei.\n\n",
+		"OBIETTIVO\nUn tavolo per 4 venerdì alle 20.\n\nCOSA TI VA BENE (puoi accettarlo da solo; non dirlo)\nVa bene tra le 19:30 e le 21. Niente caparra.\n\nCOSA SAI (puoi dirlo se serve)\nA nome di Rossi.\n\nCOME\n",
+		"di' che sei un'assistente che chiama per conto di Mario.",
+		"\nQuando rispondono, inizia con: Buonasera, vorrei prenotare un tavolo.\nQuando l'obiettivo è raggiunto",
 		"poi saluta. Insieme al saluto, nella stessa battuta,",
 	} {
 		if !strings.Contains(full, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, full)
 		}
 	}
-	for _, unwanted := range []string{"saluta e di' in una frase", "Con amici e familiari", "dai del tu"} {
+	for _, unwanted := range []string{"saluta e di' in una frase", "amici e familiari", "dai del tu"} {
 		if strings.Contains(full, unwanted) {
 			t.Errorf("prompt has %q:\n%s", unwanted, full)
 		}
@@ -50,10 +49,9 @@ func TestBuiltinSystem(t *testing.T) {
 	bare := render(t, Builtin(), ToolsThenGoodbye, Vars{Owner: "Mario", Now: friday, Brief: Brief{Objective: "Chiedere a che ora arriva."}}).System
 	for _, want := range []string{
 		"Sei un assistente che telefona per conto di Mario, e parli di te al maschile.",
-		"Adatta il modo di parlare a chi hai davanti.",
-		"Con amici e familiari invece è naturale nominare Mario",
-		"di' che sei un assistente personale che chiama",
-		"dai del tu.\n\nPERCHÉ CHIAMI\nChiedere a che ora arriva.\n\nCOME COMPORTARTI\n", // no empty sections
+		"ore 18:30.\n\nCon attività e uffici parla come un cliente, in prima persona, e dai del Lei; con amici e familiari sii caloroso e dai del tu.\n\n",
+		"di' che sei un assistente che chiama",
+		"OBIETTIVO\nChiedere a che ora arriva.\n\nCOME\n", // no empty sections
 		"Quando rispondono, saluta e di' in una frase perché chiami.",
 		"poi saluta. Per chiudere, prima registra l'esito con report_outcome",
 	} {
@@ -64,7 +62,7 @@ func TestBuiltinSystem(t *testing.T) {
 
 	personal := render(t, Builtin(), WithGoodbye, Vars{Owner: "Mario", Now: friday, Brief: Brief{
 		Callee: "Anna, la sorella di Mario", Kind: KindPersonal, Objective: "x"}}).System
-	if !strings.Contains(personal, "Chi risponde conosce Mario: è naturale nominare Mario, sii caloroso e dai del tu.\n\nCHI CHIAMI\nAnna") ||
+	if !strings.Contains(personal, "Chiami: Anna, la sorella di Mario. Conoscono Mario: sii caloroso e dai del tu.\n\nOBIETTIVO") ||
 		strings.Contains(personal, "dai del Lei") {
 		t.Errorf("personal prompt:\n%s", personal)
 	}
@@ -150,7 +148,7 @@ func TestPromptFileErrors(t *testing.T) {
 
 func TestBriefIsData(t *testing.T) {
 	r := render(t, Builtin(), WithGoodbye, Vars{Owner: "Mario", Now: friday, Brief: Brief{Objective: `{{.Owner}} {{define "x"}}`}})
-	if !strings.Contains(r.System, "PERCHÉ CHIAMI\n{{.Owner}} {{define \"x\"}}\n") {
+	if !strings.Contains(r.System, "OBIETTIVO\n{{.Owner}} {{define \"x\"}}\n") {
 		t.Errorf("the brief was evaluated:\n%s", r.System)
 	}
 }
@@ -180,7 +178,7 @@ func TestExamplePrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := render(t, s, ToolsThenGoodbye, Vars{Owner: "Mario", Now: friday, Brief: Brief{Callee: "Joe's Diner", Kind: KindBusiness, Objective: "A table for two at 8 pm."}})
-	if !strings.Contains(r.System, "Today is Friday, October 23, 2026, 18:30.") || !strings.Contains(r.System, "WHO YOU'RE CALLING\nJoe's Diner") ||
+	if !strings.Contains(r.System, "Today is Friday, October 23, 2026, 18:30.") || !strings.Contains(r.System, "You're calling: Joe's Diner. They don't know Mario") ||
 		!strings.Contains(r.System, "then say goodbye: the line closes") || r.Cues.Final != "[Time is up: wrap up now, say goodbye and end the call.]" ||
 		!strings.HasPrefix(r.Tools.ReportOutcome, "Record the outcome") {
 		t.Errorf("rendered:\n%s\n%+v", r.System, r)
@@ -196,7 +194,9 @@ func TestBuiltinStaysOnTheObjective(t *testing.T) {
 			t.Errorf("built-in prompt mentions %q", w)
 		}
 	}
-	for _, want := range []string{"Parla solo di quello che c'è in PERCHÉ CHIAMI", "anche se era solo un saluto"} {
+	for _, want := range []string{"Segui solo l'obiettivo. Se contiene più richieste, falle una alla volta.",
+		"Se ti chiedono qualcosa che non sai, dillo e proponi di verificare e richiamare. Non inventare.",
+		"Quando l'obiettivo è raggiunto o non si può raggiungere, chiudi"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("built-in prompt lacks %q", want)
 		}

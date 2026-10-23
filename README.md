@@ -106,13 +106,13 @@ Open mode removes the main guard: an agent manipulated by something it read coul
 
 Voice models don't always close calls the way the prompt says: Sonic sometimes says goodbye without calling `end_call`, then keeps answering whoever is still on the line. The watchdog fixes that without relying on the voice model.
 
-After every transcript line, dialout sends the brief and the transcript so far to a classifier, [GPT-6 Luna Decisions](https://openrouter.ai/openai/gpt-6-luna-decisions) on OpenRouter's Decisions API, and gets back a probability for each of six yes/no questions: objective reached, agent said goodbye, callee wants to end, off topic, voicemail or automated menu, hostile. Fixed rules in dialout turn the numbers into actions, which dialout carries out itself:
+After every transcript line, dialout sends the brief and the transcript so far to a classifier, [GPT-6 Luna Decisions](https://openrouter.ai/openai/gpt-6-luna-decisions) on OpenRouter's Decisions API, and gets back a probability for each of seven yes/no questions: objective reached, agent said goodbye, callee wants to end, off topic, going in circles, voicemail or automated menu, hostile. Fixed rules in dialout turn the numbers into actions, which dialout carries out itself:
 
 | When | Action |
 |---|---|
 | Voicemail/menu or hostile ≥ `hang_up` (0.9) | Drop the line at once |
 | Agent said goodbye ≥ `close` (0.8) and no `end_call` within 3 s | Hang up once the agent is silent |
-| Objective reached or callee wants to end ≥ `wrap_up` (0.8), or off topic ≥ `off_topic` (0.7) twice in a row | A cue to say goodbye and close at the next silence; if the conversation goes on (two more lines from the callee, or 20 s), the final cue and the line drops |
+| Objective reached or callee wants to end ≥ `wrap_up` (0.8), or going in circles ≥ `stuck` (0.7) or off topic ≥ `off_topic` (0.7) twice in a row | A cue to say goodbye and close at the next silence; if the conversation goes on (two more lines from the callee, or 20 s), the final cue and the line drops |
 
 - **Off by default.** Turn it on with `watchdog.enabled` and an OpenRouter key.
 - **It can only end a call sooner,** never prolong it or make the agent say anything new. A transcript saying "ignore your instructions" can at worst keep it from acting, and the time limit still applies.

@@ -53,12 +53,13 @@ const (
 	QAgentGoodbye     = "agent_said_goodbye"
 	QCalleeWantsToEnd = "callee_wants_to_end"
 	QOffTopic         = "off_topic"
+	QStuck            = "stuck"
 	QVoicemail        = "voicemail_or_ivr"
 	QHostile          = "hostile"
 )
 
 // WatchdogQuestions are the questions the watchdog asks after every turn, in order.
-var WatchdogQuestions = []string{QObjectiveReached, QAgentGoodbye, QCalleeWantsToEnd, QOffTopic, QVoicemail, QHostile}
+var WatchdogQuestions = []string{QObjectiveReached, QAgentGoodbye, QCalleeWantsToEnd, QOffTopic, QStuck, QVoicemail, QHostile}
 
 var blocks = func() []string {
 	b := []string{

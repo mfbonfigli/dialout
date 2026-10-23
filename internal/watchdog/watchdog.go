@@ -76,26 +76,31 @@ type Thresholds struct {
 	Close    float64 // agent_said_goodbye
 	WrapUp   float64 // objective_reached or callee_wants_to_end
 	OffTopic float64 // off_topic, two checks in a row
+	Stuck    float64 // stuck, two checks in a row
 }
 
 // DefaultThresholds are the thresholds when the configuration sets none.
-var DefaultThresholds = Thresholds{HangUp: 0.9, Close: 0.8, WrapUp: 0.8, OffTopic: 0.7}
+var DefaultThresholds = Thresholds{HangUp: 0.9, Close: 0.8, WrapUp: 0.8, OffTopic: 0.7, Stuck: 0.7}
 
 // Rules turn answers into actions. They keep the off-topic streak, so use one per call.
 type Rules struct {
-	T        Thresholds
-	offTopic int
+	T               Thresholds
+	offTopic, stuck int
 }
 
 // Decide returns the action for one set of answers and why, the strongest first: hang up, close,
 // wrap up.
 func (r *Rules) Decide(p map[string]float64) (Action, string) {
 	why := func(q string) string { return fmt.Sprintf("%s %.2f", q, p[q]) }
-	if p[prompts.QOffTopic] >= r.T.OffTopic {
-		r.offTopic++
-	} else {
-		r.offTopic = 0
+	streak := func(n *int, q string, t float64) {
+		if p[q] >= t {
+			*n++
+		} else {
+			*n = 0
+		}
 	}
+	streak(&r.offTopic, prompts.QOffTopic, r.T.OffTopic)
+	streak(&r.stuck, prompts.QStuck, r.T.Stuck)
 	switch {
 	case p[prompts.QVoicemail] >= r.T.HangUp:
 		return HangUp, why(prompts.QVoicemail)
@@ -107,6 +112,8 @@ func (r *Rules) Decide(p map[string]float64) (Action, string) {
 		return WrapUp, why(prompts.QObjectiveReached)
 	case p[prompts.QCalleeWantsToEnd] >= r.T.WrapUp:
 		return WrapUp, why(prompts.QCalleeWantsToEnd)
+	case r.stuck >= 2:
+		return WrapUp, why(prompts.QStuck) + ", twice in a row"
 	case r.offTopic >= 2:
 		return WrapUp, why(prompts.QOffTopic) + ", twice in a row"
 	}

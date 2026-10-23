@@ -67,6 +67,7 @@ watchdog:                              # judges the call after every turn and ma
     close: 0.8                         # the agent said goodbye without end_call: hang up once it's silent
     wrap_up: 0.8                       # objective reached, or the callee wants to end: cue a goodbye
     off_topic: 0.7                     # off topic two checks in a row: cue a goodbye
+    stuck: 0.7                         # going in circles two checks in a row: cue a goodbye
 
 policy:                                # re-read before every call
   enabled: true                        # the kill switch

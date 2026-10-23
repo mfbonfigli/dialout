@@ -46,7 +46,7 @@ func TestDecisions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(a.Probabilities) != 6 || a.Probabilities["off_topic"] != 0.91 || a.Probabilities["hostile"] != 0.25 || a.Cost != 0.0002 {
+	if len(a.Probabilities) != 7 || a.Probabilities["off_topic"] != 0.91 || a.Probabilities["hostile"] != 0.25 || a.Cost != 0.0002 {
 		t.Errorf("answers = %+v", a)
 	}
 	// The request: the model, the state as given, every question as a yes/no with its criteria.
@@ -111,5 +111,13 @@ func TestRules(t *testing.T) {
 	r.Decide(p("off_topic", 0.1))
 	if a, _ := r.Decide(p("off_topic", 0.8)); a != None {
 		t.Errorf("streak not reset: %q", a)
+	}
+	// Going in circles, the same way.
+	r = &Rules{T: DefaultThresholds}
+	if a, _ := r.Decide(p("stuck", 0.8)); a != None {
+		t.Errorf("first stuck check: %q", a)
+	}
+	if a, why := r.Decide(p("stuck", 0.75, "off_topic", 0.1)); a != WrapUp || !strings.Contains(why, "stuck") {
+		t.Errorf("second stuck check: %q %s", a, why)
 	}
 }
