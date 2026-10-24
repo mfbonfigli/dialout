@@ -12,10 +12,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/mfbonfigli/dialout/internal/awscreds"
 	"github.com/mfbonfigli/dialout/internal/call"
 	"github.com/mfbonfigli/dialout/internal/config"
 	"github.com/mfbonfigli/dialout/internal/elevenlabs"
@@ -94,7 +96,7 @@ func Build(cfg *config.Config, opt Options) (*App, error) {
 
 	var up recorder.Uploader
 	if b := cfg.Storage.S3Bucket; b != "" {
-		awsCfg, err := awsconfig.LoadDefaultConfig(context.Background())
+		awsCfg, err := loadAWS()
 		if err != nil {
 			return nil, fmt.Errorf("AWS: %w", err)
 		}
@@ -111,12 +113,21 @@ func Build(cfg *config.Config, opt Options) (*App, error) {
 	return a, nil
 }
 
+// loadAWS is the SDK's configuration, with the credentials from $DIALOUT_AWS_CREDENTIALS_FILE
+// when it's set.
+func loadAWS(opts ...func(*awsconfig.LoadOptions) error) (aws.Config, error) {
+	if p := awscreds.FromEnv(); p != nil {
+		opts = append(opts, awsconfig.WithCredentialsProvider(p))
+	}
+	return awsconfig.LoadDefaultConfig(context.Background(), opts...)
+}
+
 // NewEngine builds the configured voice engine.
 func NewEngine(cfg *config.Config) (voice.Engine, error) {
 	e := cfg.Engine
 	switch e.Name {
 	case "sonic":
-		awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(e.Sonic.Region))
+		awsCfg, err := loadAWS(awsconfig.WithRegion(e.Sonic.Region))
 		if err != nil {
 			return nil, fmt.Errorf("AWS: %w", err)
 		}
