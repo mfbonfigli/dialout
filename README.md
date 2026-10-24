@@ -153,7 +153,7 @@ The image runs `dialout serve` as a non-root user on a read-only filesystem, wit
 
 The image doesn't need AWS credentials unless you use Sonic or S3. In that case, mount a credentials **folder** read-only and point `AWS_SHARED_CREDENTIALS_FILE` at the file in it. Mount the folder, not the file: tools that rotate the file replace it, and a single-file mount keeps showing the old one. Containers can't reach an EC2 instance role when the instance metadata service is limited to one hop.
 
-For temporary credentials that something on the host refreshes (an assumed role, say), set `DIALOUT_AWS_CREDENTIALS_FILE` to a file in that folder, in [credential_process](https://docs.aws.amazon.com/sdkref/latest/guide/feature-process-credentials.html) JSON with `Expiration`. dialout reads it again five minutes before the keys it last read expire, so rewrite it well before then. The SDK alone wouldn't do this: it reads a credentials file once, and runs `credential_process` through `sh`, which the image doesn't have.
+For temporary credentials that something on the host refreshes (an assumed role, say), set `DIALOUT_AWS_CREDENTIALS_FILE` to a file in that folder, in [credential_process](https://docs.aws.amazon.com/sdkref/latest/guide/feature-process-credentials.html) JSON with `Expiration`. dialout reads it again ten minutes before the keys it last read expire (longer than the longest call), so rewrite it well before then. The SDK alone wouldn't do this: it reads a credentials file once, and runs `credential_process` through `sh`, which the image doesn't have.
 
 ## Security model
 

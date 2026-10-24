@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+
+	"github.com/mfbonfigli/dialout/internal/config"
 )
 
 func TestParse(t *testing.T) {
@@ -83,5 +85,11 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv(Env, "/config/aws/credentials.json")
 	if FromEnv() == nil {
 		t.Fatal("set: want a provider")
+	}
+}
+
+func TestExpiryWindowOutlastsACall(t *testing.T) {
+	if ExpiryWindow <= time.Duration(config.MaxMinutes)*time.Minute {
+		t.Fatalf("ExpiryWindow %s, calls last up to %d minutes", ExpiryWindow, config.MaxMinutes)
 	}
 }

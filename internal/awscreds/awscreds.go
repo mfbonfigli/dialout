@@ -20,8 +20,9 @@ import (
 // Env names the file. When it's set, every AWS client dialout builds uses it.
 const Env = "DIALOUT_AWS_CREDENTIALS_FILE"
 
-// ExpiryWindow is how long before the expiration the file is read again.
-const ExpiryWindow = 5 * time.Minute
+// ExpiryWindow is how long before the expiration the file is read again: longer than the longest
+// call (config.MaxMinutes), so a Sonic stream never outlives the keys it was opened with.
+const ExpiryWindow = 10 * time.Minute
 
 // File reads credential_process JSON from Path:
 //
