@@ -11,6 +11,16 @@ Let an AI agent make phone calls. dialout is an MCP server (and a command-line t
 
 > **Status: early.** The call engine has been used on real calls. The MCP server, the YAML configuration and the prompt file are new and tested only offline. By default only **Italian** fixed and mobile numbers on the allowlist can be called, and the built-in prompt is Italian.
 
+## Disclaimer
+
+dialout places real phone calls with an AI voice, and you are responsible for how it is used:
+
+- **Configure it properly and test it** before it calls anyone: the policy (who may be called, limits), the prompt, the brief your agent writes, and the voice engine's own settings.
+- **Comply with the laws that apply** where you are and where the people you call are. That includes rules on automated and AI-generated calls and on telling people they are talking to an AI, consent and telemarketing rules, data protection (such as the GDPR), and wiretapping and call-recording laws. Some places require every party's consent before a call is recorded or transcribed; dialout keeps a transcript unless `storage.enabled` is false, and records audio only with `storage.record_audio`.
+- **Respect the terms of the voice engine providers** you use (Amazon Bedrock, ElevenLabs, OpenAI, and any classifier behind the watchdog), including their requirements to disclose to the people called that they are talking to an AI.
+
+The software is provided as is, without warranty of any kind (see [LICENSE](LICENSE)). Nothing in this repository is legal advice.
+
 ## How a call goes
 
 1. An MCP client calls `place_call` with a number (or a label) and a brief. dialout checks the policy and returns a `call_id` at once.
@@ -167,4 +177,4 @@ SONIC_LIVE=1 go test ./internal/sonic -run TestLive -v   # talks to Nova 2 Sonic
 
 ## License
 
-To be chosen.
+[MIT](LICENSE).
