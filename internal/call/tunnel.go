@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -57,7 +58,8 @@ func (t *Tunnel) Start(ctx context.Context) (string, func(), error) {
 type QuickTunnel struct {
 	Binary       string        // cloudflared; found with FindCloudflared when empty
 	Origin       string        // the stream endpoint, e.g. http://127.0.0.1:8090
-	ReadyTimeout time.Duration // 30 s when 0
+	ReadyTimeout time.Duration // 30 s when 0, for cloudflared to register
+	ProbeTimeout time.Duration // 90 s when 0, for the edge to route the new name
 	Log          *slog.Logger
 
 	prefix []string                                     // tests: arguments before cloudflared's
@@ -98,9 +100,11 @@ func (q *QuickTunnel) Start(ctx context.Context) (string, func(), error) {
 	if probe == nil {
 		probe = probeHealth
 	}
-	timeout := q.ReadyTimeout
+	// Measured in October 2026: the edge routes a new quick tunnel about 30 s after cloudflared
+	// registers it.
+	timeout := q.ProbeTimeout
 	if timeout == 0 {
-		timeout = 30 * time.Second
+		timeout = 90 * time.Second
 	}
 	pctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -111,9 +115,67 @@ func (q *QuickTunnel) Start(ctx context.Context) (string, func(), error) {
 	return h, stop, nil
 }
 
-// probeHealth asks the stream endpoint's health path through the tunnel until it answers.
+// quickEdge resolves to Cloudflare's edge for every quick tunnel name.
+const quickEdge = "trycloudflare.com"
+
+// probeHealth asks the stream endpoint's health path through the tunnel until it answers. It
+// reaches the edge by quickEdge's addresses, not by the new name: asked before Cloudflare
+// publishes the name, a resolver caches "no such host" for a minute (the zone's negative TTL),
+// longer than the wait. The edge routes by SNI and Host, so the request still reaches the tunnel.
+// Then it gives the name a few seconds to resolve, for Twilio, which asks its own resolvers.
 func probeHealth(ctx context.Context, host string) error {
-	return waitHealthy(ctx, &http.Client{Timeout: 5 * time.Second}, "https://"+host+healthPath)
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", quickEdge)
+	if err != nil {
+		return fmt.Errorf("Cloudflare's edge: %w", err)
+	}
+	c := pinnedClient(ips)
+	defer c.CloseIdleConnections()
+	if err := waitHealthy(ctx, c, "https://"+host+healthPath); err != nil {
+		return err
+	}
+	waitResolvable(ctx, host, 10*time.Second)
+	return nil
+}
+
+// pinnedClient connects to ips, whatever the URL's host, keeping that host for TLS and HTTP.
+func pinnedClient(ips []net.IP) *http.Client {
+	d := &net.Dialer{Timeout: 5 * time.Second}
+	tr := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			_, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			last := errors.New("no address")
+			for _, ip := range ips {
+				conn, err := d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				if err == nil {
+					return conn, nil
+				}
+				last = err
+			}
+			return nil, last
+		},
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
+	return &http.Client{Timeout: 5 * time.Second, Transport: tr}
+}
+
+// waitResolvable looks host up every two seconds until it resolves or max passes. It never fails:
+// our resolver may hold an early miss that Twilio's resolvers, never asked, don't.
+func waitResolvable(ctx context.Context, host string, max time.Duration) {
+	ctx, cancel := context.WithTimeout(ctx, max)
+	defer cancel()
+	for {
+		if _, err := net.DefaultResolver.LookupHost(ctx, host); err == nil {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
 }
 
 func waitHealthy(ctx context.Context, client *http.Client, url string) error {

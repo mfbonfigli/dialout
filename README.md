@@ -3,7 +3,7 @@
 Let an AI agent make phone calls. dialout is an MCP server (and a command-line tool) that places an outbound call through Twilio, lets a speech-to-speech voice agent hold the conversation, and returns the transcript and the outcome.
 
 - **Swappable voice engines:** Amazon Nova 2 Sonic (default), ElevenLabs Agents, OpenAI Realtime.
-- **No inbound ports:** Twilio's audio arrives through a Cloudflare tunnel that runs only during a call. It's a quick tunnel by default (no account or domain needed), or your own hostname.
+- **No inbound ports:** Twilio's audio arrives through a Cloudflare tunnel that runs only during a call. It's a quick tunnel by default (no account or domain needed, but about 35 s before the phone rings while Cloudflare routes the new name), or your own hostname (a few seconds).
 - **A policy in front of every call:** a kill switch, allowed countries and number types, an allowlist (or open dialling with calling hours and per-number limits), a blocklist, rate limits and size limits, all checked by the server and not by the agent that asks.
 - **Transcripts by default, audio only if you want it, or nothing at all.** They're stored in a folder or an S3 bucket, uploaded during the call, and recovered after a crash. With `storage.enabled: false` nothing of the conversation touches the disk.
 - **Your prompt:** a built-in Italian prompt, replaceable block by block with a template file.

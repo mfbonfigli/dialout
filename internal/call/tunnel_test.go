@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -142,5 +143,28 @@ func TestWaitHealthy(t *testing.T) {
 	defer cancel()
 	if err := waitHealthy(ctx, srv.Client(), srv.URL+"/nope"); err == nil {
 		t.Error("a 404 counted as healthy")
+	}
+}
+
+// The probe reaches the edge by address while TLS and Host keep the tunnel's name, the way
+// Cloudflare routes it: here example.com (the test certificate's name) reaches 127.0.0.1.
+func TestPinnedClient(t *testing.T) {
+	var gotHost string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		(&Streams{}).ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+
+	c := pinnedClient([]net.IP{net.IPv4(192, 0, 2, 1).To4(), net.IPv4(127, 0, 0, 1)}) // the first doesn't answer
+	c.Transport.(*http.Transport).TLSClientConfig = srv.Client().Transport.(*http.Transport).TLSClientConfig
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := waitHealthy(ctx, c, "https://example.com:"+port+healthPath); err != nil {
+		t.Fatal(err)
+	}
+	if gotHost != "example.com:"+port {
+		t.Errorf("Host %q", gotHost)
 	}
 }
