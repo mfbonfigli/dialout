@@ -152,12 +152,12 @@ func TestS3Storage(t *testing.T) {
 	t.Setenv("T_SECRET", "x")
 	t.Setenv("T_TOKEN", "x")
 	text := strings.Replace(sample, "prompt:\n  file: prompt.tmpl\n", "", 1)
-	text = strings.Replace(text, "record_audio: true", "record_audio: true\n  s3_bucket: my-calls\n  s3_region: eu-south-1\n  s3_prefix: hermes/dialout", 1)
+	text = strings.Replace(text, "record_audio: true", "record_audio: true\n  s3_bucket: my-calls\n  s3_region: eu-south-1\n  s3_prefix: archive/dialout", 1)
 	c, err := Parse([]byte(text), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s := c.Storage; s.S3Bucket != "my-calls" || s.S3Region != "eu-south-1" || s.S3Prefix != "hermes/dialout/" {
+	if s := c.Storage; s.S3Bucket != "my-calls" || s.S3Region != "eu-south-1" || s.S3Prefix != "archive/dialout/" {
 		t.Errorf("storage = %+v", s)
 	}
 }

@@ -163,7 +163,7 @@ under `~/.dialout/calls`. `dialout call -h` lists the flags: `-callee`, `-kind`,
 
 | Command | Transport | For |
 |---|---|---|
-| `dialout mcp` | stdio | A client that starts dialout itself (Claude Code, Claude Desktop, Hermes). No token: the client owns the process |
+| `dialout mcp` | stdio | A client that starts dialout itself (Claude Code, Claude Desktop, any agent framework). No token: the client owns the process |
 | `dialout serve` | Streamable HTTP at `server.mcp_listen`, path `/mcp` | A long-running container that agents reach over the network. Every request needs the bearer token |
 
 Both read the same `dialout.yaml`, and both hang up the call in progress before they exit.
@@ -207,6 +207,8 @@ claude mcp add dialout -- docker run -i --rm --init \
 - **Permissions:** the mounted `dialout.yaml` must be readable by uid 65532 (it holds no secrets, so `chmod 644` is
   fine). `--env-file` is read by Docker on the host, so `secrets.env` can stay private.
 - **`--env-file` takes values literally:** don't quote them there.
+- **A data folder instead of the named volume** (`-v /srv/dialout:/data`) must be writable by uid 65532:
+  `sudo chown 65532:65532 /srv/dialout`.
 - **`--init`** reaps cloudflared after each call.
 - **Pin a version** (`:0.1.2`) or a digest for real use.
 
@@ -243,51 +245,6 @@ mcp_servers:
 Keep the MCP port private: publish it only on `127.0.0.1`, or not at all on a Docker network shared only with the
 agent, and always keep the token.
 
-### On Hermes, with hermesctl
-
-[hermesctl](https://github.com/mfbonfigli/hermesctl) installs dialout on a Hermes host as a stdio server in its own
-locked-down container. It uploads `dialout.yaml` as a config file, filling its `${NAME}` placeholders from
-encrypted secrets and skipping comment lines. Start from [examples/dialout.minimal.yaml](examples/dialout.minimal.yaml),
-which references only the secrets it uses, and leave `secrets_file` out.
-
-The install wizard, abridged:
-
-```text
-lab> mcp install phone
-Kind: command: a stdio server in a Docker image, run on the host
-Docker image: ghcr.io/mfbonfigli/dialout
-Pinned to ghcr.io/mfbonfigli/dialout@sha256:…
-Arguments after the image: mcp
-Environment variable, NAME=value (${NAME} for a secret):
-Install a config file: where it goes in the container: /config/dialout.yaml
-The file on this computer: ./dialout.yaml
-Its name on the host: phone/dialout.yaml
-Another config file: where it goes in the container:
-Give it a data folder, kept across restarts and backed up? Yes
-Where in the container: /data
-Run as uid:gid, so it can write there: 65532:65532
-Network access (the internet, through the host's egress)? Yes
-Memory limit: 256m
-Trust: untrusted: its write tools ask for your approval in Telegram (recommended)
-Install phone on lab? Yes
-```
-
-hermesctl then asks once for the value of each placeholder in the file (`TWILIO_ACCOUNT_SID`, …) and stores it
-encrypted. Good to know:
-
-- **The data folder needs `65532:65532`,** the image's user. Without it the folder stays owned by root, and dialout
-  can't write its spool, its calls or its history.
-- **Untrusted is the right trust level:** `place_call` and `hang_up` then wait for your approval in Telegram, while
-  `list_numbers` and `get_call` (read-only) run freely.
-- **AWS keys for Sonic or S3** go in as environment variables, with placeholders for the secrets:
-  `AWS_ACCESS_KEY_ID=${DIALOUT_AWS_ACCESS_KEY_ID}` and `AWS_SECRET_ACCESS_KEY=${DIALOUT_AWS_SECRET_ACCESS_KEY}`,
-  plus `AWS_REGION=eu-north-1` for S3 if the file sets no `storage.s3_region`. Use an IAM user that can do only what
-  dialout needs ([permissions](#aws-credentials)).
-- **Egress on port 7844:** the host must let cloudflared out on TCP and UDP 7844. hermesctl's provider rules open
-  80, 443, 465, 587 and 993, so add 7844 to the instance's security group (AWS) or security list (OCI).
-- **Changing the file later:** `hermesctl config put phone/dialout.yaml ./dialout.yaml` uploads it again and
-  restarts only dialout. The policy and the prompt file are re-read before every call anyway.
-
 ## Configuration
 
 One YAML file, `dialout.yaml`. dialout reads the file given with `-config`, else `$DIALOUT_CONFIG`
@@ -296,7 +253,7 @@ on Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows), els
 
 | Example | Use it for |
 |---|---|
-| [examples/dialout.minimal.yaml](examples/dialout.minimal.yaml) | The smallest working file: Sonic, a quick tunnel, one number. Best for containers and hermesctl |
+| [examples/dialout.minimal.yaml](examples/dialout.minimal.yaml) | The smallest working file: Sonic, a quick tunnel, one number. Best for containers |
 | [examples/dialout.example.yaml](examples/dialout.example.yaml) | Every key, annotated, with its default ([shown below](#the-complete-file)) |
 | [examples/secrets.env.example](examples/secrets.env.example) | The secrets, as `KEY=VALUE` |
 | [examples/prompt-en.tmpl](examples/prompt-en.tmpl) | A complete English prompt file |

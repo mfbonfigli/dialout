@@ -2,8 +2,8 @@
 # the allowlist, transcripts under $DIALOUT_DATA (/data in the container). Every other key keeps its
 # default: dialout.example.yaml lists them all.
 #
-# It references only the secrets it uses, so a tool that fills ${NAME} placeholders (hermesctl's
-# config files, for one) asks only for those. Placeholders on comment lines are ignored there.
+# It references only the secrets it uses: set them in the environment (docker run -e or --env-file),
+# or add secrets_file: secrets.env.
 
 owner: Marco
 timezone: Europe/Rome
