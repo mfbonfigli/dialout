@@ -329,6 +329,28 @@ func TestTranscriptOnly(t *testing.T) {
 	}
 }
 
+func TestKeyPrefix(t *testing.T) {
+	store := newStore()
+	cfg := testConfig(t, store)
+	cfg.Audio = false
+	cfg.KeyPrefix = "dialout/"
+	r, err := Start(cfg, "call-p", started, []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := "dialout/calls/2026/10/21/call-p/"
+	if r.Prefix() != prefix {
+		t.Fatalf("prefix = %s", r.Prefix())
+	}
+	res, err := r.Finish(context.Background(), []byte(`{}`))
+	if err != nil || res.Prefix != prefix {
+		t.Fatalf("result = %+v, %v", res, err)
+	}
+	if got, want := store.keys(), []string{prefix + "meta.json", prefix + "transcript.jsonl"}; !slices.Equal(got, want) {
+		t.Errorf("uploaded %v, want %v", got, want)
+	}
+}
+
 func TestEndOfCallAudio(t *testing.T) {
 	store := newStore()
 	r, err := Start(testConfig(t, store), "call-2", started, []byte(`{}`))

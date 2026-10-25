@@ -96,9 +96,16 @@ func Build(cfg *config.Config, opt Options) (*App, error) {
 
 	var up recorder.Uploader
 	if b := cfg.Storage.S3Bucket; b != "" {
-		awsCfg, err := loadAWS()
+		var opts []func(*awsconfig.LoadOptions) error
+		if r := cfg.Storage.S3Region; r != "" {
+			opts = append(opts, awsconfig.WithRegion(r))
+		}
+		awsCfg, err := loadAWS(opts...)
 		if err != nil {
 			return nil, fmt.Errorf("AWS: %w", err)
+		}
+		if awsCfg.Region == "" {
+			return nil, errors.New("storage.s3_bucket: no region for the bucket; set storage.s3_region or AWS_REGION")
 		}
 		up = &recorder.S3{Client: s3.NewFromConfig(awsCfg), Bucket: b}
 		a.where = func(key string) string { return "s3://" + b + "/" + key }
@@ -107,7 +114,7 @@ func Build(cfg *config.Config, opt Options) (*App, error) {
 		up, a.where = dir, dir.Path
 	}
 	a.Recorder = recorder.Config{
-		SpoolDir: cfg.Storage.Spool, Segment: time.Duration(cfg.Storage.SegmentSeconds) * time.Second,
+		SpoolDir: cfg.Storage.Spool, KeyPrefix: cfg.Storage.S3Prefix, Segment: time.Duration(cfg.Storage.SegmentSeconds) * time.Second,
 		Audio: cfg.Storage.RecordAudio, Disabled: !cfg.Storage.Enabled, Uploader: up, Log: log,
 	}
 	return a, nil

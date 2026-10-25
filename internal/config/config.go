@@ -106,6 +106,8 @@ type Storage struct {
 	Spool          string `yaml:"spool"`
 	Dir            string `yaml:"dir"`       // where finished calls go, unless S3Bucket
 	S3Bucket       string `yaml:"s3_bucket"` // upload under calls/ in this bucket instead
+	S3Region       string `yaml:"s3_region"` // the bucket's region; the AWS SDK's (AWS_REGION, profile) when empty
+	S3Prefix       string `yaml:"s3_prefix"` // a key prefix before calls/, e.g. dialout/
 	Index          string `yaml:"index"`     // the server's call history
 }
 
@@ -349,6 +351,16 @@ func (c *Config) check(unset map[string][]string) error {
 	}
 	if c.Storage.SegmentSeconds < 1 {
 		errs = append(errs, errors.New("storage.segment_seconds must be at least 1"))
+	}
+	if c.Storage.S3Bucket == "" && (c.Storage.S3Region != "" || c.Storage.S3Prefix != "") {
+		errs = append(errs, errors.New("storage.s3_region and storage.s3_prefix need storage.s3_bucket"))
+	}
+	if p := c.Storage.S3Prefix; p != "" {
+		if strings.HasPrefix(p, "/") || strings.Contains(p, "..") || strings.ContainsAny(p, `\ `) {
+			errs = append(errs, fmt.Errorf("storage.s3_prefix: %q must be relative, without .., \\ or spaces", p))
+		} else if !strings.HasSuffix(p, "/") {
+			c.Storage.S3Prefix += "/"
+		}
 	}
 
 	need("server.mcp_listen", c.Server.MCPListen)

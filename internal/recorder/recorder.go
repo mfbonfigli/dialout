@@ -52,12 +52,13 @@ type Uploader interface {
 
 // Config is shared by every call.
 type Config struct {
-	SpoolDir string        // a directory per call is created inside, e.g. /data/spool
-	Segment  time.Duration // segment length, DefaultSegment when 0
-	Audio    bool          // record the audio too; without it only the transcript and meta.json
-	Disabled bool          // store nothing at all: no spool, no uploads; every method does nothing
-	Uploader Uploader
-	Log      *slog.Logger // slog.Default() when nil
+	SpoolDir  string        // a directory per call is created inside, e.g. /data/spool
+	KeyPrefix string        // before every call's prefix, e.g. "dialout/"; empty for none
+	Segment   time.Duration // segment length, DefaultSegment when 0
+	Audio     bool          // record the audio too; without it only the transcript and meta.json
+	Disabled  bool          // store nothing at all: no spool, no uploads; every method does nothing
+	Uploader  Uploader
+	Log       *slog.Logger // slog.Default() when nil
 }
 
 func (c *Config) normalize() error {
@@ -160,7 +161,7 @@ func Start(cfg Config, callID string, started time.Time, meta []byte) (*Recorder
 	}
 	st := state{
 		CallID:         callID,
-		Prefix:         Prefix(callID, started),
+		Prefix:         cfg.KeyPrefix + Prefix(callID, started),
 		Started:        started.UTC(),
 		SegmentSeconds: int(cfg.Segment / time.Second),
 	}

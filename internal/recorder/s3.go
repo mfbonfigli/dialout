@@ -8,8 +8,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// S3 uploads to a bucket. The credentials need only s3:PutObject under calls/: no reads, no
-// deletes. The bucket encrypts at rest by default.
+// S3 uploads to a bucket. The credentials need only s3:PutObject under the calls' prefix: no
+// reads, no deletes. The bucket encrypts at rest by default.
 type S3 struct {
 	Client *s3.Client
 	Bucket string
