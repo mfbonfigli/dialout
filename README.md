@@ -1,4 +1,8 @@
-# dialout
+# Dialout MCP
+
+<p align="center">
+  <img src="dialout.png" alt="Dialout banner" width="100%">
+</p>
 
 [![CI](https://github.com/mfbonfigli/dialout/actions/workflows/ci.yml/badge.svg)](https://github.com/mfbonfigli/dialout/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/tag/mfbonfigli/dialout?label=version&sort=semver)](https://github.com/mfbonfigli/dialout/tags)
@@ -6,7 +10,7 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/mfbonfigli/dialout)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**Let an AI agent make phone calls.** dialout is an [MCP](https://modelcontextprotocol.io) server that places an
+**Let an AI agent make phone calls.** Dialout is an [MCP](https://modelcontextprotocol.io) server that places an
 outbound call through Twilio, lets a speech-to-speech voice agent hold the conversation, and returns the transcript
 and the outcome.
 
@@ -14,25 +18,40 @@ Your agent asks it to *call the pizzeria and order a margherita for pickup at 10
 the number may be called, rings it, lets a voice agent talk to whoever answers, hangs up, and hands back what was
 said.
 
-> **Status: early.** The call engine has been used on real calls; the MCP server, the YAML configuration and the
-> prompt file are newer. Out of the box, dialout calls only the fixed and mobile numbers in the UK, the US and Italy
-> that you put on its allowlist.
-
 ## Contents
 
-- [Features](#features)
-- [Responsible use](#responsible-use)
-- [Requirements](#requirements)
-- [Quick start](#quick-start)
-- [How a call goes](#how-a-call-goes)
-- [MCP tools](#mcp-tools)
-- [Customization](#customization)
-- [Supported voice providers](#supported-voice-providers)
-- [Calls and transcript recording](#calls-and-transcript-recording)
-- [Use as a CLI](#use-as-a-cli)
-- [Development](#development)
-- [Getting help](#getting-help)
-- [License](#license)
+- [Dialout MCP](#dialout-mcp)
+  - [Contents](#contents)
+  - [Features](#features)
+  - [Responsible use](#responsible-use)
+  - [Requirements](#requirements)
+  - [Quick start](#quick-start)
+    - [1. Configure](#1-configure)
+    - [2. Try one call](#2-try-one-call)
+    - [3a. Connect an MCP client over stdio](#3a-connect-an-mcp-client-over-stdio)
+    - [3b. Or serve it over HTTP](#3b-or-serve-it-over-http)
+    - [Good to know](#good-to-know)
+  - [How a call goes](#how-a-call-goes)
+  - [MCP tools](#mcp-tools)
+  - [Customization](#customization)
+    - [Customize settings](#customize-settings)
+    - [Secrets](#secrets)
+    - [Tunnel](#tunnel)
+    - [The complete dialout.yaml file](#the-complete-dialoutyaml-file)
+    - [Customize the system prompt for the calls](#customize-the-system-prompt-for-the-calls)
+      - [Placeholders](#placeholders)
+      - [Blocks](#blocks)
+    - [Customize the call policy](#customize-the-call-policy)
+    - [Watchdog](#watchdog)
+  - [Supported voice providers](#supported-voice-providers)
+    - [Amazon Nova 2 Sonic](#amazon-nova-2-sonic)
+    - [ElevenLabs Agents](#elevenlabs-agents)
+    - [OpenAI Realtime](#openai-realtime)
+  - [Calls and transcript recording](#calls-and-transcript-recording)
+  - [Use as a CLI](#use-as-a-cli)
+  - [Development](#development)
+  - [Getting help](#getting-help)
+  - [License](#license)
 
 ## Features
 
@@ -45,23 +64,23 @@ said.
 - **Swappable voice engines:** Amazon Nova 2 Sonic (default), ElevenLabs Agents or OpenAI Realtime, chosen with one
   key.
 - **Your prompt:** a built-in English prompt you can replace block by block, with the call's brief, the date and
-  the callee as placeholders. Checked at start-up, so a typo never reaches a call.
-- **No inbound ports:** Twilio's audio reaches dialout through a Cloudflare tunnel that runs only during a call.
-- **Transcripts by default, audio if you want it, or nothing at all,** in a folder or an S3 bucket, uploaded during
-  the call and recovered after a crash.
-- **An optional watchdog** that hangs up on voicemail, automated menus and hostile callees.
+  the callee as placeholders.
+- **No inbound ports:** Twilio's audio reaches Dialout through a Cloudflare tunnel that runs only during a call.
+- **Transcripts by default, audio if you want it, or nothing at all,** stored in a folder or an S3 bucket uploaded during
+  the call.
+- **An optional watchdog** that monitors the conversation externally and hangs up on voicemail, automated menus and hostile callees.
 - **One small image:** a static binary plus cloudflared, multi-arch, non-root, read-only.
 
 ## Responsible use
 
-dialout places real phone calls with an AI voice, and you are responsible for how it is used:
+Dialout places real phone calls with an AI voice, and you are responsible for how it is used:
 
 - **Configure it properly and test it** before it calls anyone: the policy (who may be called, limits), the prompt,
   the brief your agent writes, and the voice engine's own settings.
 - **Comply with the laws that apply** where you are and where the people you call are. That includes rules on
   automated and AI-generated calls and on telling people they are talking to an AI, consent and telemarketing
   rules, data protection (such as the GDPR), and wiretapping and call-recording laws. Some places require every
-  party's consent before a call is recorded or transcribed; dialout keeps a transcript unless `storage.enabled` is
+  party's consent before a call is recorded or transcribed; Dialout keeps a transcript unless `storage.enabled` is
   false, and records audio only with `storage.record_audio`.
 - **Respect the terms of the voice engine providers** you use (Amazon Bedrock, ElevenLabs, OpenAI, and any
   classifier behind the watchdog), including their requirements to disclose to the people called that they are
@@ -75,22 +94,22 @@ is legal advice.
 | What | Why |
 |---|---|
 | **Docker** | To run the image (or see [Use as a CLI](#use-as-a-cli)) |
-| **A Twilio account**, paid, with the Primary Customer Profile approved | Trial accounts can't stream audio, and the API refuses calls until the profile is approved |
-| **A caller ID** on that account | A verified number of yours, or one bought on the account |
-| **A voice engine** | AWS credentials allowed to invoke Nova 2 Sonic, or an ElevenLabs API key and agent, or an OpenAI API key |
-| **Outbound TCP and UDP 7844** | cloudflared connects to Cloudflare's edge on that port: a firewall that allows only 80 and 443 out breaks every call |
+| **A Twilio account**, paid, with the Primary Customer Profile approved | To submit phone calls |
+| **A caller ID** on that account | To call as a number you own |
+| **A voice AI engine** | To sustain the conversation and reply to the callee. Currently supported: Amazon Nova 2 Sonic, ElevenLabs Agents, OpenAI Realtime. |
+| **Outbound TCP and UDP 7844** | To let the server connect to Cloudflare's edge, required to receive the inbound stream from Twilio |
 
-Restrict the Twilio account's voice geographic permissions to the countries you call, and keep a small prepaid
+Remember to restrict the Twilio account's voice geographic permissions to the countries you call, and keep a small prepaid
 balance.
 
 ## Quick start
 
-Everything runs from the image `ghcr.io/mfbonfigli/dialout` (linux/amd64 and linux/arm64), which includes
-cloudflared. It runs as uid 65532, reads `/config/dialout.yaml`, and keeps its data under `/data`.
+Everything runs from the image `ghcr.io/mfbonfigli/dialout` (linux/amd64 and linux/arm64), which also includes cloudflared. 
+It runs as uid 65532, reads `/config/dialout.yaml`, and keeps its data under `/data`. 
 
 ### 1. Configure
 
-Create a folder with a configuration file and a secrets file, starting from the examples:
+Create a local folder with a configuration file and a secrets file, starting from the examples:
 
 ```bash
 mkdir -p ~/dialout && cd ~/dialout
@@ -99,18 +118,24 @@ curl -fsSL -o secrets.env https://raw.githubusercontent.com/mfbonfigli/dialout/m
 chmod 644 dialout.yaml && chmod 600 secrets.env
 ```
 
-In `dialout.yaml`, set your name as `owner`, your Twilio number as `twilio.from`, and the numbers dialout may call
-under `policy.allowlist`:
+In `dialout.yaml`, set your name as `owner`, your Twilio number as `twilio.from`, and the numbers Dialout may call
+under `policy.allowlist`. Note: values `${...}` are placeholders for secrets, leave them as such.
 
 ```yaml
-owner: Alex                       # who the agent calls for, as it says on the phone
+owner: Federico                        # who the agent calls for, as it says on the phone
 timezone: Europe/London
 twilio:
   account_sid: ${TWILIO_ACCOUNT_SID}
   api_key_sid: ${TWILIO_API_KEY_SID}
   api_key_secret: ${TWILIO_API_KEY_SECRET}
   auth_token: ${TWILIO_AUTH_TOKEN}
-  from: "+1 646 555 0199"         # your caller ID
+  from: "+39 06 1234 5678"             # your caller ID, verified in Twilio
+engine:
+  name: elevenlabs                     # sonic | elevenlabs | openai
+  language: en                         # the callee's language, for OpenAI's transcription
+  elevenlabs:                         
+    api_key: ${ELEVENLABS_API_KEY}
+    agent_id: "agent_myagentid"        # agent_…: set up once in the ElevenLabs dashboard
 policy:
   enabled: true
   countries: [GB, US, IT]
@@ -126,24 +151,28 @@ policy:
 ```
 
 In `secrets.env`, fill in the Twilio keys and, for the default engine (Nova 2 Sonic), AWS keys allowed to invoke it
-([permissions](#amazon-nova-2-sonic)):
+([permissions](#amazon-nova-2-sonic)), or any other secret needed (eg `ELEVENLABS_API_KEY`):
 
 ```bash
 TWILIO_ACCOUNT_SID=AC…
 TWILIO_API_KEY_SID=SK…
 TWILIO_API_KEY_SECRET=…
 TWILIO_AUTH_TOKEN=…
-AWS_ACCESS_KEY_ID=…
-AWS_SECRET_ACCESS_KEY=…
+AWS_ACCESS_KEY_ID=…               # for amazon sonic nova and s3 uploads
+AWS_SECRET_ACCESS_KEY=…           # for amazon sonic nova and s3 uploads
+ELEVENLABS_API_KEY=…              # for elevenlabs
 DIALOUT_MCP_TOKEN=…               # only for HTTP: openssl rand -hex 32
 ```
 
-dialout fills each `${NAME}` in `dialout.yaml` from the environment, so the secrets never go in the file.
-[Customization](#customization) covers every other setting.
+Dialout fills each `${NAME}` in `dialout.yaml` from the environment, so the secrets never go in the general file.
+
+[Customization](#customization) covers every other setting, including how to specify a custom call prompt for the voice agents.
+It also specifies how to use dedicated Cloudflare tunnels to receive the voice stream from Twilio, which can cut latency
+on call submission and possibly be more reliable.
 
 ### 2. Try one call
 
-Call your own phone from the terminal. dialout shows a summary, asks for confirmation, and prints the conversation
+Call your own phone from the terminal. Dialout shows a summary, asks for confirmation, and prints the conversation
 as it happens:
 
 ```bash
@@ -157,7 +186,7 @@ docker run -it --rm --init \
 
 ### 3a. Connect an MCP client over stdio
 
-The client starts the container whenever it needs dialout. With Claude Code:
+The client starts the container whenever it needs Dialout. With Claude Code:
 
 ```bash
 claude mcp add dialout -- docker run -i --rm --init \
@@ -188,11 +217,11 @@ Any client that runs a command works the same way. For example, in Claude Deskto
 }
 ```
 
-Then ask your agent: *"Call the pizzeria and order a margherita for pickup at 10 pm, up to $20."*
+Then ask your agent: *"Call my friend Alex and ask if he wants to go play golf this Saturday at 11 AM"*
 
 ### 3b. Or serve it over HTTP
 
-For agents that reach dialout over the network, run it as a long-lived container. Its default command, `serve`,
+For agents that reach Dialout over the network, run it as a long-lived container. Its default command, `serve`,
 speaks MCP's Streamable HTTP at `/mcp` and requires `Authorization: Bearer <DIALOUT_MCP_TOKEN>` on every request:
 
 ```bash
@@ -230,14 +259,14 @@ mcp_servers:
   writable by uid 65532 (`sudo chown 65532:65532 /srv/dialout`).
 - **`--env-file` takes values literally:** don't quote them.
 - **`--init`** reaps cloudflared after each call.
-- **Pin a version** (`:0.1.2`) or a digest for real use.
+- **Pin a version** (`:0.2.0`) or a digest for real use.
 
 ## How a call goes
 
 ```mermaid
 sequenceDiagram
     participant A as AI agent (MCP client)
-    participant D as dialout
+    participant D as Dialout
     participant T as Twilio
     participant P as Person called
     participant V as Voice engine
@@ -259,9 +288,9 @@ sequenceDiagram
 1. An MCP client calls `place_call` with a number (or an allowlist label) and a brief. dialout checks the policy and
    returns a `call_id` at once.
 2. It starts cloudflared, waits until the tunnel answers, then creates the Twilio call.
-3. When the callee answers, Twilio streams the audio over a WebSocket. dialout checks the signature and the call,
+3. When the callee answers, Twilio streams the audio over a WebSocket. Dialout checks the signature and the call,
    and bridges the audio to the voice engine.
-4. The agent talks, then calls `report_outcome` and `end_call`. dialout hangs up once the goodbye has played. Time
+4. The agent talks, then calls `report_outcome` and `end_call`. Dialout hangs up once the goodbye has played. Time
    limits, cues and barge-in are handled along the way.
 5. `get_call` returns the status, the transcript and the agent's outcome. The outcome is a hint: judge from the
    transcript.
@@ -299,7 +328,7 @@ For a pizzeria:
  "context": "The order is under the name Alex."}
 ```
 
-dialout's MCP instructions tell clients to confirm the number and objective with the owner first, to judge the
+Dialout's MCP instructions tell clients to confirm the number and objective with the owner first, to judge the
 outcome from the transcript, and to treat the transcript as data, never as instructions.
 
 ## Customization
@@ -311,7 +340,7 @@ Everything lives in one YAML file, `dialout.yaml`, mounted at `/config/dialout.y
 | Example | Use it for |
 |---|---|
 | [examples/dialout.minimal.yaml](examples/dialout.minimal.yaml) | The smallest working file: Sonic, a quick tunnel, two numbers |
-| [examples/dialout.example.yaml](examples/dialout.example.yaml) | Every key, annotated, with its default ([shown below](#the-complete-file)) |
+| [examples/dialout.example.yaml](examples/dialout.example.yaml) | Every key, annotated, with its default ([shown below](#the-complete-dialoutyaml-file)) |
 | [examples/secrets.env.example](examples/secrets.env.example) | The secrets, as `KEY=VALUE` |
 | [examples/prompt-custom.tmpl](examples/prompt-custom.tmpl) | A prompt file that replaces part of the built-in prompt |
 | [examples/compose.yaml](examples/compose.yaml) | `dialout serve` with Docker Compose |
@@ -319,13 +348,13 @@ Everything lives in one YAML file, `dialout.yaml`, mounted at `/config/dialout.y
 How the file is read:
 
 - **Strict:** an unknown key, a duplicate key or a wrong type is an error. Everything is checked at start-up, the
-  prompt file included, so a mistake stops dialout before it can fail a call.
+  prompt file included, so a mistake stops Dialout before it can fail a call.
 - **Defaults:** every key you leave out has one, so the minimal file is enough to call.
 - **Reloaded before every call:** the policy and the prompt file, so you can change the allowlist or tune the prompt
   without a restart. Other settings apply at the next start.
 - **Relative paths** (`secrets_file`, `prompt.file`, the storage paths) start from the file's folder.
 
-#### Secrets
+### Secrets
 
 `dialout.yaml` references secrets as `${NAME}`, filled in after the YAML is parsed, so a secret with `#` or `: ` in it
 can't break the file.
@@ -349,13 +378,13 @@ can't break the file.
 | `OPENROUTER_API_KEY` | The watchdog |
 | `DIALOUT_MCP_TOKEN` | `dialout serve` |
 
-#### Tunnel
+### Tunnel
 
-Twilio needs a public `wss://` address for the call's audio. dialout starts cloudflared for each call and stops it
+Twilio needs a public `wss://` address for the call's audio. Dialout starts cloudflared for each call and stops it
 afterwards, so nothing listens on a public port. By default it's a quick tunnel: no Cloudflare account, but about
 35 s before the phone rings while Cloudflare routes the new name. With your own domain it takes a few seconds:
 create a remotely managed tunnel whose public hostname points at `http://localhost:8090` (`tunnel.listen`), and give
-dialout its token.
+Dialout its token.
 
 ```yaml
 tunnel:
@@ -363,7 +392,7 @@ tunnel:
   token: ${CF_TUNNEL_TOKEN}
 ```
 
-#### The complete file
+### The complete dialout.yaml file
 
 Every key, with its default, from [examples/dialout.example.yaml](examples/dialout.example.yaml):
 
@@ -478,7 +507,7 @@ policy:                                # re-read before every call
 
 </details>
 
-### Customize the call prompt
+### Customize the system prompt for the calls
 
 The voice agent's instructions come from a **prompt file**: a Go [`text/template`](https://pkg.go.dev/text/template)
 file of named blocks. The [built-in file](prompts/builtin.tmpl) is a complete English prompt; your own file replaces
@@ -516,7 +545,7 @@ Once the goal is reached or clearly can't be, confirm what was agreed in one sen
 {{define "cue.wrap_up"}}[30 seconds left: confirm what was agreed and say goodbye.]{{end}}
 ```
 
-**2. Point dialout at it.** Mount it next to `dialout.yaml` and set `prompt.file`, relative to `dialout.yaml`:
+**2. Point Dialout at it.** Mount it next to `dialout.yaml` and set `prompt.file`, relative to `dialout.yaml`:
 
 ```yaml
 prompt:
@@ -527,7 +556,7 @@ prompt:
 -v "$HOME/dialout/prompt.tmpl:/config/prompt.tmpl:ro"
 ```
 
-The file is re-read before every call, so you can tune it while dialout runs. A broken file stops dialout at start-up,
+The file is re-read before every call, so you can tune it while Dialout runs. A broken file stops Dialout at start-up,
 or makes `place_call` return the error if you break it later; no call starts with it.
 
 #### Placeholders
@@ -583,7 +612,7 @@ test-rendered with a full and a bare brief, both kinds and both closings.
 
 ### Customize the call policy
 
-The policy is dialout's built-in safeguard, and the agent can't override it. It runs inside the server on every
+The policy is Dialout's built-in safeguard, and the agent can't override it. It runs inside the server on every
 `place_call`: whatever an agent is told, by its user or by something it read, it can only ask, and the policy
 decides. It's also flexible: it's re-read from `dialout.yaml` before every call, so you can switch calls off, add a
 number or widen the hours without a restart.
@@ -632,7 +661,7 @@ Each call passes these checks:
    ```
 
 4. **The limits:** one call at a time, `per_hour`, `per_day`, the call length, and the size of each brief field
-   (`callee_chars`, `objective_chars`… in the [complete file](#the-complete-file)).
+   (`callee_chars`, `objective_chars`… in the [complete file](#the-complete-dialoutyaml-file)).
 
 Numbers go in international form (`+44…`). To accept national numbers, set `default_country`. Open mode removes the
 main guard, so keep the MCP client's approval for every call, Twilio's geographic permissions set to the same
@@ -641,7 +670,7 @@ countries, and a small prepaid balance.
 **Beyond the policy:**
 
 - **The transcript is what a third party said.** MCP clients should treat it as data, never as instructions.
-- **No payments:** the built-in prompt forbids giving payment details, and nothing in dialout can pay.
+- **No payments:** the built-in prompt forbids giving payment details, and nothing in Dialout can pay.
 - **cloudflared gets an allowlisted environment** (no keys). Twilio's WebSocket is accepted only with a one-time
   token, a valid signature and the expected call.
 - **The image** is distroless, with no shell; cloudflared is pinned by version and checksum.
@@ -715,7 +744,7 @@ In a container:
 - **Temporary credentials that something on the host refreshes** (an assumed role, say): set
   `DIALOUT_AWS_CREDENTIALS_FILE` to a file in a mounted folder, in
   [credential_process](https://docs.aws.amazon.com/sdkref/latest/guide/feature-process-credentials.html) JSON with
-  `Expiration`. dialout reads it again ten minutes before the keys it last read expire, so rewrite it well before then.
+  `Expiration`. Dialout reads it again ten minutes before the keys it last read expire, so rewrite it well before then.
 - **An EC2 instance role** isn't reachable from containers when the instance metadata service allows one hop only.
 
 ### ElevenLabs Agents
@@ -787,11 +816,11 @@ storage:
 ```
 
 - **Credentials** come from the same chain as [Sonic's](#amazon-nova-2-sonic), and need only `s3:PutObject` on the
-  prefix (`arn:aws:s3:::my-dialout-calls/dialout/calls/*`): dialout never reads, lists or deletes.
+  prefix (`arn:aws:s3:::my-dialout-calls/dialout/calls/*`): Dialout never reads, lists or deletes.
 - **The spool stays local,** so keep `/data` writable. A failed upload is retried at the end of the call; files that
   still fail stay in the spool until the next start.
-- **No region, no start:** dialout refuses to start when neither `s3_region` nor the AWS configuration gives one.
-- `s3_region` and `s3_prefix` are newer than v0.1.2. With that image, set `AWS_REGION` and leave them out.
+- **No region, no start:** Dialout refuses to start when neither `s3_region` nor the AWS configuration gives one.
+- `s3_region` and `s3_prefix` need v0.2.0 or later. With an older image, set `AWS_REGION` and leave them out.
 
 **Nothing at all:**
 
@@ -801,13 +830,13 @@ storage:
 ```
 
 No spool, no `meta.json`, no transcript and no audio on disk, and the call history keeps only what the rate limits
-need (number, times, status). `get_call` still returns the transcript and the outcome from memory, until dialout
+need (number, times, status). `get_call` still returns the transcript and the outcome from memory, until Dialout
 restarts.
 
 ## Use as a CLI
 
-dialout also runs without Docker, as a single binary. It needs [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
-in `PATH` (or `tunnel.cloudflared` set to its path), and Go 1.25+ to build:
+Dialout also runs without Docker, as a single binary. It needs [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+in `PATH` (or `tunnel.cloudflared` set to its path), and Go 1.27+ to build:
 
 ```bash
 go install github.com/mfbonfigli/dialout/cmd/dialout@latest

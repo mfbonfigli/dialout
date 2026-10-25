@@ -2,7 +2,7 @@
 # dialout: one image with the server and cloudflared. Multi-arch: linux/amd64 and linux/arm64.
 #   docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/mfbonfigli/dialout:dev .
 
-ARG GO_VERSION=1.25
+ARG GO_VERSION=1.27
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
 ARG TARGETOS TARGETARCH VERSION=dev
