@@ -134,11 +134,31 @@ func TestErrors(t *testing.T) {
 		"watchdog removed key":  {base + "watchdog:\n  enabled: true\n  api_key: k\n  thresholds: {wrap_up: 0.8}\n", "wrap_up"},
 		"watchdog timeout":      {base + "watchdog:\n  enabled: true\n  api_key: k\n  timeout: 1m\n", "watchdog.timeout"},
 		"per number":            {strings.Replace(base, "per_hour: 0", "per_number_per_day: -1", 1), "per_number_per_day"},
+		"duplicate key":         {base + "watchdog:\n  enabled: false\nwatchdog:\n  enabled: true\n", "already defined"},
+		"s3 region, no bucket":  {strings.Replace(base, "record_audio: true", "record_audio: true\n  s3_region: eu-west-1", 1), "need storage.s3_bucket"},
+		"s3 prefix, no bucket":  {strings.Replace(base, "record_audio: true", "record_audio: true\n  s3_prefix: dialout", 1), "need storage.s3_bucket"},
+		"s3 absolute prefix":    {strings.Replace(base, "record_audio: true", "record_audio: true\n  s3_bucket: b\n  s3_prefix: /dialout", 1), "storage.s3_prefix"},
+		"s3 prefix with ..":     {strings.Replace(base, "record_audio: true", "record_audio: true\n  s3_bucket: b\n  s3_prefix: a/../b", 1), "storage.s3_prefix"},
 	} {
 		_, err := Parse([]byte(c.text), t.TempDir())
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: error %v, want it to mention %q", name, err, c.want)
 		}
+	}
+}
+
+func TestS3Storage(t *testing.T) {
+	t.Setenv("T_SID", "AC123")
+	t.Setenv("T_SECRET", "x")
+	t.Setenv("T_TOKEN", "x")
+	text := strings.Replace(sample, "prompt:\n  file: prompt.tmpl\n", "", 1)
+	text = strings.Replace(text, "record_audio: true", "record_audio: true\n  s3_bucket: my-calls\n  s3_region: eu-south-1\n  s3_prefix: hermes/dialout", 1)
+	c, err := Parse([]byte(text), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := c.Storage; s.S3Bucket != "my-calls" || s.S3Region != "eu-south-1" || s.S3Prefix != "hermes/dialout/" {
+		t.Errorf("storage = %+v", s)
 	}
 }
 
@@ -235,5 +255,44 @@ func TestExampleConfig(t *testing.T) {
 	}
 	if c.Storage.Spool != filepath.Join("/data", "spool") || c.Storage.Index != filepath.Join("/data", "calls.json") {
 		t.Errorf("data paths: %s, %s", c.Storage.Spool, c.Storage.Index)
+	}
+}
+
+// TestReadmeShowsExample keeps the complete file in the README in step with the example.
+func TestReadmeShowsExample(t *testing.T) {
+	ex, err := os.ReadFile("../../examples/dialout.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	norm := func(b []byte) string { return strings.ReplaceAll(string(b), "\r\n", "\n") }
+	if !strings.Contains(norm(readme), "```yaml\n"+norm(ex)+"```") {
+		t.Error("README.md's complete file differs from examples/dialout.example.yaml: paste the example into it again")
+	}
+}
+
+func TestMinimalExampleConfig(t *testing.T) {
+	b, err := os.ReadFile("../../examples/dialout.minimal.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"TWILIO_ACCOUNT_SID", "TWILIO_API_KEY_SID", "TWILIO_API_KEY_SECRET", "TWILIO_AUTH_TOKEN"} {
+		t.Setenv(k, "x")
+	}
+	if _, err := Parse(b, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	// The commented-out S3 storage is valid too.
+	text := strings.ReplaceAll(string(b), "# storage:", "storage:")
+	text = strings.ReplaceAll(text, "#   s3_", "  s3_")
+	c, err := Parse([]byte(text), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Storage.S3Bucket == "" || c.Storage.S3Region == "" || c.Storage.S3Prefix != "dialout/" {
+		t.Errorf("storage = %+v", c.Storage)
 	}
 }

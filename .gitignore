@@ -1,9 +1,12 @@
 # Real configuration and secrets never go in the repo: copy the examples.
 /dialout.yaml
+/config/
+/secrets/
 *.env
 !examples/*.env.example
 
 # Build output
+/bin/
 /dist/
 /dialout
 /dialout.exe

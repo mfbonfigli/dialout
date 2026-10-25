@@ -1,37 +1,40 @@
 # dialout.yaml: every setting but the secrets, which come in as ${VAR} from the environment or
-# from secrets_file. Copy it to ~/.config/dialout/dialout.yaml (Linux), %AppData%\dialout\dialout.yaml
+# from secrets_file. Copy it to ~/.config/dialout/dialout.yaml (Linux),
+# ~/Library/Application Support/dialout/dialout.yaml (macOS), %AppData%\dialout\dialout.yaml
 # (Windows), or /config/dialout.yaml in the container, and fill it in. Unknown keys are errors.
+# Keys left out take their defaults: the values shown, except where a comment says "example"
+# or gives another default.
 
-owner: Marco                        # who the agent calls for, as said on the phone; one line, ≤ 80 characters
-timezone: Europe/Rome                  # for the date in the prompt; default: the machine's
-secrets_file: secrets.env              # optional KEY=VALUE file, relative to this one; the environment wins
+owner: Marco                           # example. Who the agent calls for, as said on the phone; one line, ≤ 80 characters
+timezone: Europe/Rome                  # example. For the date in the prompt and the calling hours; default: the machine's
+secrets_file: secrets.env              # example. Optional KEY=VALUE file, relative to this one; the environment wins
 
 twilio:
-  account_sid: ${TWILIO_ACCOUNT_SID}
-  api_key_sid: ${TWILIO_API_KEY_SID}
+  account_sid: ${TWILIO_ACCOUNT_SID}   # AC…
+  api_key_sid: ${TWILIO_API_KEY_SID}   # SK…: an API key of the account
   api_key_secret: ${TWILIO_API_KEY_SECRET}
   auth_token: ${TWILIO_AUTH_TOKEN}     # only to check X-Twilio-Signature
-  from: "+353 85 000 0000"             # caller ID: a verified caller ID, or a number on the account
+  from: "+353 85 000 0000"             # example. Caller ID: a verified caller ID, or a number on the account
 
 engine:
   name: sonic                          # sonic | elevenlabs | openai
   language: it                         # the callee's language, for OpenAI's transcription
-  sonic:
-    region: eu-north-1                 # AWS credentials from the usual chain (profile, env, role)
-    voice: beatrice                    # beatrice | lorenzo
-  elevenlabs:
+  sonic:                               # Amazon Nova 2 Sonic on Bedrock
+    region: eu-north-1                 # AWS credentials from the usual chain (env, profile, role)
+    voice: beatrice                    # beatrice | lorenzo (Italian voices)
+  elevenlabs:                          # ElevenLabs Agents
     api_key: ${ELEVENLABS_API_KEY}
     agent_id: ""                       # agent_…: set up once in the ElevenLabs dashboard
     voice_id: ""                       # instead of the agent's voice
-    voice_gender: female               # the prompt's grammatical gender
+    voice_gender: female               # the prompt's grammatical gender: female | male
     llm: ""                            # instead of the agent's model
     api_base: ""                       # e.g. https://api.eu.residency.elevenlabs.io
-  openai:
+  openai:                              # OpenAI Realtime
     api_key: ${OPENAI_API_KEY}
     model: gpt-realtime-2.1
-    voice: marin
-    voice_gender: ""                   # only for a voice outside the built-in list
-    api_base: ""
+    voice: marin                       # marin, cedar, alloy, ash, ballad, coral, echo, sage, shimmer, verse
+    voice_gender: ""                   # only for a voice outside that list: female | male
+    api_base: ""                       # default wss://api.openai.com
 
 prompt:
   file: ""                             # empty: the built-in Italian prompt; see examples/prompt-en.tmpl
@@ -49,7 +52,9 @@ storage:
   # Defaults: under $DIALOUT_DATA (/data in the container), else ~/.dialout.
   # spool: /data/spool
   # dir: /data/calls                   # where finished calls go…
-  # s3_bucket: ""                      # …or this bucket, under calls/ (AWS credentials needed)
+  # s3_bucket: my-dialout-calls        # …or this bucket, under [s3_prefix]calls/ (AWS credentials needed)
+  # s3_region: eu-north-1              # the bucket's region; default: AWS_REGION or the profile's
+  # s3_prefix: dialout/                # default: none
   # index: /data/calls.json            # the server's call history
 
 server:                                # dialout serve only
@@ -67,7 +72,7 @@ watchdog:                              # a safety net: hangs up on a voicemail, 
     hang_up: 0.9
 
 policy:                                # re-read before every call
-  enabled: true                        # the kill switch
+  enabled: true                        # the kill switch; default false: no calls at all
   mode: allowlist                      # allowlist: only the numbers below | open: any dialable number
   # Which numbers are dialable at all, in every mode (libphonenumber's numbering plans).
   countries: [IT]                      # ISO codes; +1 is several countries, so name them (US, CA)
@@ -76,18 +81,18 @@ policy:                                # re-read before every call
   blocklist: []                        # numbers or prefixes, in international form: never called
   # Open mode, numbers not on the allowlist: when they may be called, in timezone ("" = any time).
   hours: "09:00-21:00"
-  allowlist:
+  allowlist:                           # example
     - number: "+39 333 000 0000"       # quote numbers
-      label: Marco (mobile)
-      name: Marco                   # optional: the default callee
+      label: Marco (mobile)            # what the agent passes as place_call's "to"
+      name: Marco                      # optional: the default callee
       kind: personal                   # optional: business | personal
   limits:
     max_minutes: 5                     # at most 7
-    ring_seconds: 25
+    ring_seconds: 25                   # 5 to 120
     per_hour: 6                        # 0: no limit
     per_day: 20
     per_number_per_day: 2              # open mode, numbers not on the allowlist; 0: no limit
-    callee_chars: 100
+    callee_chars: 100                  # the longest brief fields place_call accepts
     opening_chars: 300
     objective_chars: 500
     limits_chars: 500

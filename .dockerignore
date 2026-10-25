@@ -1,5 +1,8 @@
 .git
 .github
-*.env
-dialout.yaml
+**/*.env
+**/dialout.yaml
+config/
+secrets/
+bin/
 dist/

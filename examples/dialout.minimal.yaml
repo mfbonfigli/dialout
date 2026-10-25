@@ -1,0 +1,36 @@
+# The smallest useful dialout.yaml: Amazon Nova 2 Sonic, a quick tunnel per call, one number on
+# the allowlist, transcripts under $DIALOUT_DATA (/data in the container). Every other key keeps its
+# default: dialout.example.yaml lists them all.
+#
+# It references only the secrets it uses, so a tool that fills ${NAME} placeholders (hermesctl's
+# config files, for one) asks only for those. Placeholders on comment lines are ignored there.
+
+owner: Marco
+timezone: Europe/Rome
+
+twilio:
+  account_sid: ${TWILIO_ACCOUNT_SID}
+  api_key_sid: ${TWILIO_API_KEY_SID}
+  api_key_secret: ${TWILIO_API_KEY_SECRET}
+  auth_token: ${TWILIO_AUTH_TOKEN}
+  from: "+353 85 000 0000"
+
+engine:
+  name: sonic
+  sonic:
+    region: eu-north-1
+    voice: beatrice
+
+# Uncomment to upload the calls to S3 instead of keeping them in the data folder.
+# storage:
+#   s3_bucket: my-dialout-calls
+#   s3_region: eu-north-1
+#   s3_prefix: dialout/
+
+policy:
+  enabled: true
+  allowlist:
+    - number: "+39 333 000 0000"
+      label: Marco (mobile)
+      name: Marco
+      kind: personal
