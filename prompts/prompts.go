@@ -3,7 +3,7 @@
 // and the tools' descriptions.
 //
 // They come from a prompt file: a text/template file of named blocks. The built-in one
-// (builtin.tmpl, Italian, compiled into the binary) is the default; the owner's file overrides any
+// (builtin.tmpl, English, compiled into the binary) is the default; the owner's file overrides any
 // of its blocks. Whoever places a call only fills in the brief, which is inserted as data.
 //
 // The built-in prompt states a few conversational principles rather than a list of prohibitions:

@@ -173,11 +173,11 @@ func TestConversation(t *testing.T) {
 	s := dial(t, f, e, voice.Config{Owner: "Marco", Brief: prompts.Brief{Objective: "Una margherita da asporto."}})
 
 	// The overrides: the rendered prompt and the voice, nothing else. Language and first message are
-	// the agent's own (Italian, empty), and every override needs a toggle on the agent.
+	// the agent's own (the agent's language, empty), and every override needs a toggle on the agent.
 	agent := f.init["conversation_config_override"].(map[string]any)["agent"].(map[string]any)
 	prompt := agent["prompt"].(map[string]any)["prompt"].(string)
 	if f.init["type"] != "conversation_initiation_client_data" ||
-		!strings.Contains(prompt, "Sei un'assistente che telefona per conto di Marco") || !strings.Contains(prompt, "Insieme al saluto, nella stessa battuta") ||
+		!strings.Contains(prompt, "You are a personal assistant phoning on behalf of Marco") || !strings.Contains(prompt, "Together with your goodbye, in the same turn") ||
 		!strings.Contains(prompt, "Una margherita da asporto.") {
 		t.Errorf("initiation = %v", f.init)
 	}

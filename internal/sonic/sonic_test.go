@@ -146,7 +146,7 @@ func TestStartSequenceAndInput(t *testing.T) {
 	ps := bodies[1]
 	prompt := ps["promptName"].(string)
 	out := ps["audioOutputConfiguration"].(map[string]any)
-	if out["voiceId"] != "beatrice" || out["sampleRateHertz"] != 8000.0 || out["mediaType"] != "audio/lpcm" {
+	if out["voiceId"] != "tiffany" || out["sampleRateHertz"] != 8000.0 || out["mediaType"] != "audio/lpcm" {
 		t.Errorf("audio output config = %v", out)
 	}
 	tools := ps["toolConfiguration"].(map[string]any)["tools"].([]any)
@@ -439,7 +439,7 @@ func TestStartFailures(t *testing.T) {
 	for _, c := range []Config{
 		{},
 		{Prompt: &prompts.Rendered{}},
-		{Prompt: testPrompt, Voice: "matthew"},
+		{Prompt: testPrompt, Voice: "joanna"}, // a Polly voice, not Sonic's
 		{Prompt: testPrompt, Endpointing: "FAST"},
 	} {
 		if _, err := Start(context.Background(), newFake(), c); err == nil {

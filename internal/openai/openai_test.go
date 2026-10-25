@@ -183,8 +183,8 @@ func TestSession(t *testing.T) {
 	in := sess["audio"].(map[string]any)["input"].(map[string]any)
 	out := sess["audio"].(map[string]any)["output"].(map[string]any)
 	if f.model != DefaultModel || sess["type"] != "realtime" ||
-		!strings.Contains(sess["instructions"].(string), "Sei un'assistente che telefona per conto di Marco") ||
-		!strings.Contains(sess["instructions"].(string), "Insieme al saluto, nella stessa battuta") ||
+		!strings.Contains(sess["instructions"].(string), "You are a personal assistant phoning on behalf of Marco") ||
+		!strings.Contains(sess["instructions"].(string), "Together with your goodbye, in the same turn") ||
 		!strings.Contains(sess["instructions"].(string), "Una margherita da asporto.") {
 		t.Errorf("session = %v (model %s)", sess, f.model)
 	}

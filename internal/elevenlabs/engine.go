@@ -1,6 +1,6 @@
 // Package elevenlabs holds the conversation on ElevenLabs Agents, over their Agents Platform
 // WebSocket, behind voice.Engine: an alternative to Nova Sonic. The agent is set up
-// once in ElevenLabs (Italian, audio formats, client tools, which overrides are allowed); each
+// once in ElevenLabs (the language, audio formats, client tools, which overrides are allowed); each
 // call overrides only what changes between calls: the system prompt, and optionally the voice and
 // the LLM. Every override must be allowed on the agent, or ElevenLabs closes the conversation
 // right after it starts.
@@ -43,7 +43,7 @@ type Engine struct {
 	AgentID string
 	BaseURL string // DefaultBaseURL when empty
 	Voice   string // voice_id when a call names none; the agent's own voice when empty
-	Female  bool   // the grammatical gender of the voice, stated in the Italian prompt
+	Female  bool   // the grammatical gender of the voice, which a prompt may state
 	LLM     string // the agent's own LLM when empty; otherwise an override
 
 	HTTP      *http.Client
@@ -96,8 +96,8 @@ func (e *Engine) Dial(ctx context.Context, c voice.Config) (voice.Session, error
 
 func (e *Engine) start(ctx context.Context, ws *websocket.Conn, system string, c voice.Config) (*Session, error) {
 	// The first message stays the agent's own: it must be empty, so the agent waits for the callee's
-	// "Pronto?" as with Sonic, and the opening comes from the prompt.
-	// The language is the agent's own (Italian): it never changes, so it isn't overridden.
+	// "Hello?" as with Sonic, and the opening comes from the prompt.
+	// The language is the agent's own: it never changes, so it isn't overridden.
 	agent := map[string]any{"prompt": map[string]any{"prompt": system}}
 	if e.LLM != "" {
 		agent["prompt"].(map[string]any)["llm"] = e.LLM

@@ -138,7 +138,7 @@ type Policy struct {
 	Enabled        bool           `yaml:"enabled"`
 	Mode           string         `yaml:"mode"`            // allowlist, or open: any dialable number
 	Countries      []string       `yaml:"countries"`       // ISO codes of the countries numbers may be in
-	DefaultCountry string         `yaml:"default_country"` // for numbers written without +
+	DefaultCountry string         `yaml:"default_country"` // for numbers written without +; none: international form only
 	NumberTypes    []string       `yaml:"number_types"`    // fixed, mobile, toll_free
 	Blocklist      []string       `yaml:"blocklist"`       // numbers or prefixes never called
 	Hours          string         `yaml:"hours"`           // open mode, unlisted numbers: e.g. 09:00-21:00
@@ -169,14 +169,14 @@ const MaxMinutes = 7
 // defaults are the values of the keys a file leaves out.
 func defaults() Config {
 	return Config{
-		Engine: Engine{Name: "sonic", Language: "it", Sonic: Sonic{Region: "eu-north-1", Voice: "beatrice"},
+		Engine: Engine{Name: "sonic", Language: "en", Sonic: Sonic{Region: "eu-north-1", Voice: "tiffany"},
 			ElevenLabs: ElevenLabs{VoiceGender: "female"}},
 		Tunnel:  Tunnel{Listen: "127.0.0.1:8090"},
 		Storage: Storage{Enabled: true, SegmentSeconds: 60},
 		Server:  Server{MCPListen: ":8080"},
 		Watchdog: Watchdog{BaseURL: "https://openrouter.ai/api", Model: "openai/gpt-6-luna-decisions", Timeout: 3 * time.Second,
 			CheckEvery: 4, Thresholds: WatchdogThresholds{HangUp: 0.9}},
-		Policy: Policy{Source: "file", Mode: string(policy.ModeAllowlist), Countries: []string{"IT"}, DefaultCountry: "IT",
+		Policy: Policy{Source: "file", Mode: string(policy.ModeAllowlist), Countries: []string{"GB", "US", "IT"},
 			NumberTypes: []string{"fixed", "mobile"}, Hours: "09:00-21:00", Limits: Limits{
 				MaxMinutes: 5, RingSeconds: 25, PerHour: 6, PerDay: 20, PerNumberDay: 2,
 				CalleeChars: 100, OpeningChars: 300, ObjectiveChars: 500, LimitsChars: 500, ContextChars: 2000,

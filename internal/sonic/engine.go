@@ -68,7 +68,7 @@ func (e *Engine) prompt(c voice.Config) (voice.Config, error) {
 	}
 	female, ok := voices[c.Voice]
 	if !ok {
-		return c, fmt.Errorf("sonic: unsupported voice %q (beatrice or lorenzo)", c.Voice)
+		return c, fmt.Errorf("sonic: unsupported voice %q (%s)", c.Voice, voiceNames)
 	}
 	return c.Render(prompts.ToolsThenGoodbye, female)
 }

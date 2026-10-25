@@ -157,7 +157,7 @@ func NormalizeBlock(s string) (string, error) {
 	return out, nil
 }
 
-// Entry is one allowlisted number with a human label ("Marco (mobile)").
+// Entry is one allowlisted number with a human label ("Alex (mobile)").
 type Entry struct {
 	Number string `json:"number" yaml:"number"`
 	Label  string `json:"label" yaml:"label"`

@@ -31,7 +31,7 @@ policy:
       label: Marco (mobile)
       name: Marco
       kind: personal
-    - number: "02 1234 5678"
+    - number: "+39 02 1234 5678"
       label: Pizzeria
   limits:
     per_hour: 0
@@ -63,8 +63,8 @@ func TestLoad(t *testing.T) {
 		t.Errorf("twilio = %+v", c.Twilio)
 	}
 	// Defaults, and relative paths from the file's folder.
-	if c.Engine.Sonic.Voice != "beatrice" || c.Engine.Sonic.Region != "eu-north-1" || c.Tunnel.Listen != "127.0.0.1:8090" ||
-		c.Storage.SegmentSeconds != 60 || c.Server.MCPListen != ":8080" || c.Engine.Language != "it" {
+	if c.Engine.Sonic.Voice != "tiffany" || c.Engine.Sonic.Region != "eu-north-1" || c.Tunnel.Listen != "127.0.0.1:8090" ||
+		c.Storage.SegmentSeconds != 60 || c.Server.MCPListen != ":8080" || c.Engine.Language != "en" {
 		t.Errorf("defaults: %+v", c)
 	}
 	if c.Storage.Spool != filepath.Join(dir, "data", "spool") || !strings.HasSuffix(c.Storage.Index, "calls.json") ||
@@ -80,8 +80,9 @@ func TestLoad(t *testing.T) {
 		p.MaxPerHour != 0 || p.MaxPerDay != 20 || p.MaxCallSeconds != 300 || p.MaxCallee != 100 {
 		t.Errorf("policy = %+v", p)
 	}
-	// The dialling defaults: Italy, fixed and mobile; for open mode, 09:00-21:00 and 2 a day.
-	if strings.Join(p.Dialable.Countries, ",") != "IT" || p.Dialable.DefaultCountry != "IT" || len(p.Dialable.Kinds) != 2 ||
+	// The dialling defaults: the UK, the US and Italy, numbers in international form, fixed and
+	// mobile; for open mode, 09:00-21:00 and 2 a day.
+	if strings.Join(p.Dialable.Countries, ",") != "GB,US,IT" || p.Dialable.DefaultCountry != "" || len(p.Dialable.Kinds) != 2 ||
 		p.Hours.String() != "09:00-21:00" || p.MaxPerNumberPerDay != 2 || p.Location != c.Location || len(p.Blocklist) != 0 {
 		t.Errorf("dialling policy = %+v", p)
 	}
@@ -113,7 +114,7 @@ func TestErrors(t *testing.T) {
 		"engine":                {strings.Replace(base, "name: sonic", "name: watson", 1), "engine.name"},
 		"elevenlabs":            {strings.Replace(base, "name: sonic", "name: elevenlabs", 1), "engine.elevenlabs.api_key is empty"},
 		"tunnel token":          {base + "tunnel:\n  hostname: calls.example.com\n", "tunnel.token is empty"},
-		"bad number":            {strings.Replace(base, "02 1234 5678", "112", 1), "policy.allowlist"},
+		"bad number":            {strings.Replace(base, "+39 02 1234 5678", "112", 1), "policy.allowlist"},
 		"bad kind":              {strings.Replace(base, "kind: personal", "kind: friend", 1), "kind"},
 		"long call":             {strings.Replace(base, "per_hour: 0", "max_minutes: 8", 1), "max_minutes"},
 		"ssm":                   {strings.Replace(base, "enabled: true", "enabled: true\n  source: ssm", 1), "policy.source"},
@@ -174,7 +175,7 @@ func TestOpenPolicy(t *testing.T) {
   blocklist: ["+39 02 1234 5678", "+353 1"]
   hours: "08:00-20:00"`, 1)
 	text = strings.Replace(text, "per_hour: 0", "per_hour: 0\n    per_number_per_day: 1", 1)
-	text = strings.Replace(text, "02 1234 5678\"\n      label: Pizzeria", "+353 85 123 4567\"\n      label: Dublin", 1)
+	text = strings.Replace(text, "+39 02 1234 5678\"\n      label: Pizzeria", "+353 85 123 4567\"\n      label: Dublin", 1)
 	c, err := Parse([]byte(text), t.TempDir())
 	if err != nil {
 		t.Fatal(err)

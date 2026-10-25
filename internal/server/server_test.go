@@ -30,7 +30,7 @@ policy:
   enabled: true
   allowlist:
     - {number: "+39 333 000 0000", label: Marco (mobile), name: Marco, kind: personal}
-    - {number: "02 1234 5678", label: Pizzeria}
+    - {number: "+39 02 1234 5678", label: Pizzeria}
   limits: {per_hour: 2}
 `
 
@@ -80,7 +80,7 @@ func newHarnessWith(t *testing.T, text string) *harness {
 	h := &harness{t: t, cancel: cancel, release: make(chan struct{})}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h.s = &Server{
-		App:   &app.App{Config: cfg, Engine: engine{voices: map[string]bool{"beatrice": true, "lorenzo": true}}, Log: quiet},
+		App:   &app.App{Config: cfg, Engine: engine{voices: map[string]bool{"tiffany": true, "matthew": true}}, Log: quiet},
 		Index: idx,
 		Load:  func() (*config.Config, error) { return cfg, nil },
 		Run:   h.run,
@@ -239,7 +239,7 @@ func TestHangUpAndLimits(t *testing.T) {
 	if rec.EndReason != "hung_up_on_request" || rec.Callee != "la pizzeria Da Mario" || rec.Kind != "business" {
 		t.Errorf("hung-up call = %+v", rec)
 	}
-	if h.configs[0].Voice != "beatrice" { // the configured one
+	if h.configs[0].Voice != "tiffany" { // the configured one
 		t.Errorf("voice = %q", h.configs[0].Voice)
 	}
 
@@ -330,7 +330,7 @@ func TestHTTP(t *testing.T) {
 }
 
 func TestOpenMode(t *testing.T) {
-	open := strings.Replace(testConfig, "  enabled: true\n", "  enabled: true\n  mode: open\n  countries: [IT, IE]\n  hours: \"\"\n", 1)
+	open := strings.Replace(testConfig, "  enabled: true\n", "  enabled: true\n  mode: open\n  countries: [IT, IE]\n  default_country: IT\n  hours: \"\"\n", 1)
 	open = strings.Replace(open, "limits: {per_hour: 2}", "limits: {per_hour: 5, per_number_per_day: 1}", 1)
 	h := newHarnessWith(t, open)
 	close(h.release)

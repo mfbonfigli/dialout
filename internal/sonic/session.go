@@ -27,7 +27,7 @@ const (
 	// MaxStream is how long Bedrock keeps a bidirectional stream open. Calls must end well before.
 	MaxStream = 8 * time.Minute
 
-	DefaultVoice       = "beatrice"
+	DefaultVoice       = "tiffany"
 	DefaultEndpointing = "MEDIUM"
 )
 
@@ -39,8 +39,19 @@ const (
 )
 
 var (
-	// voices maps each voice to its grammatical gender (true: female), which the prompt states.
-	voices      = map[string]bool{"beatrice": true, "lorenzo": false}
+	// voices maps each of Nova 2 Sonic's voices to its grammatical gender (true: female), which a
+	// prompt may state. tiffany and matthew (en-US) speak every supported language.
+	voices = map[string]bool{
+		"tiffany": true, "matthew": false, // en-US
+		"amy": true, "olivia": true, // en-GB, en-AU
+		"kiara": true, "arjun": false, // en-IN, hi-IN
+		"ambre": true, "florian": false, // fr-FR
+		"beatrice": true, "lorenzo": false, // it-IT
+		"tina": true, "lennart": false, // de-DE
+		"lupe": true, "carlos": false, // es-US
+		"carolina": true, "leo": false, // pt-BR
+	}
+	voiceNames  = "tiffany, matthew, amy, olivia, kiara, arjun, ambre, florian, beatrice, lorenzo, tina, lennart, lupe, carlos, carolina or leo"
 	endpointing = map[string]bool{"HIGH": true, "MEDIUM": true, "LOW": true}
 
 	// ErrClosed is returned by sends after End or Close.
@@ -50,7 +61,7 @@ var (
 // Config is what varies between calls.
 type Config struct {
 	Prompt      *prompts.Rendered // the system prompt, the tools' descriptions and the tool hints
-	Voice       string            // beatrice (DefaultVoice) or lorenzo
+	Voice       string            // one of voices; DefaultVoice when empty
 	Endpointing string            // turn detection sensitivity: HIGH, MEDIUM (DefaultEndpointing) or LOW
 }
 
@@ -62,7 +73,7 @@ func (c *Config) normalize() error {
 		c.Voice = DefaultVoice
 	}
 	if _, ok := voices[c.Voice]; !ok {
-		return fmt.Errorf("sonic: unsupported voice %q (beatrice or lorenzo)", c.Voice)
+		return fmt.Errorf("sonic: unsupported voice %q (%s)", c.Voice, voiceNames)
 	}
 	if c.Endpointing == "" {
 		c.Endpointing = DefaultEndpointing

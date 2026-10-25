@@ -5,8 +5,8 @@
 # Keys left out take their defaults: the values shown, except where a comment says "example"
 # or gives another default.
 
-owner: Marco                           # example. Who the agent calls for, as said on the phone; one line, ≤ 80 characters
-timezone: Europe/Rome                  # example. For the date in the prompt and the calling hours; default: the machine's
+owner: Alex                            # example. Who the agent calls for, as said on the phone; one line, ≤ 80 characters
+timezone: Europe/London                # example. For the date in the prompt and the calling hours; default: the machine's
 secrets_file: secrets.env              # example. Optional KEY=VALUE file, relative to this one; the environment wins
 
 twilio:
@@ -14,14 +14,14 @@ twilio:
   api_key_sid: ${TWILIO_API_KEY_SID}   # SK…: an API key of the account
   api_key_secret: ${TWILIO_API_KEY_SECRET}
   auth_token: ${TWILIO_AUTH_TOKEN}     # only to check X-Twilio-Signature
-  from: "+353 85 000 0000"             # example. Caller ID: a verified caller ID, or a number on the account
+  from: "+1 646 555 0199"              # example. Caller ID: a verified caller ID, or a number on the account
 
 engine:
   name: sonic                          # sonic | elevenlabs | openai
-  language: it                         # the callee's language, for OpenAI's transcription
+  language: en                         # the callee's language, for OpenAI's transcription
   sonic:                               # Amazon Nova 2 Sonic on Bedrock
     region: eu-north-1                 # AWS credentials from the usual chain (env, profile, role)
-    voice: beatrice                    # beatrice | lorenzo (Italian voices)
+    voice: tiffany                     # tiffany, matthew (en-US, every language), amy (en-GB)…
   elevenlabs:                          # ElevenLabs Agents
     api_key: ${ELEVENLABS_API_KEY}
     agent_id: ""                       # agent_…: set up once in the ElevenLabs dashboard
@@ -37,7 +37,7 @@ engine:
     api_base: ""                       # default wss://api.openai.com
 
 prompt:
-  file: ""                             # empty: the built-in Italian prompt; see examples/prompt-en.tmpl
+  file: ""                             # empty: the built-in English prompt; see examples/prompt-custom.tmpl
 
 tunnel:
   hostname: ""                         # empty: a Cloudflare quick tunnel per call, no account needed
@@ -75,17 +75,21 @@ policy:                                # re-read before every call
   enabled: true                        # the kill switch; default false: no calls at all
   mode: allowlist                      # allowlist: only the numbers below | open: any dialable number
   # Which numbers are dialable at all, in every mode (libphonenumber's numbering plans).
-  countries: [IT]                      # ISO codes; +1 is several countries, so name them (US, CA)
-  default_country: IT                  # for numbers written without +
+  countries: [GB, US, IT]              # ISO codes; +1 is several countries, so name them (US, CA)
+  default_country: ""                  # for numbers written without +; "": international form only
   number_types: [fixed, mobile]        # add toll_free if you want; premium, shared cost, VoIP… never
   blocklist: []                        # numbers or prefixes, in international form: never called
   # Open mode, numbers not on the allowlist: when they may be called, in timezone ("" = any time).
   hours: "09:00-21:00"
   allowlist:                           # example
-    - number: "+39 333 000 0000"       # quote numbers
-      label: Marco (mobile)            # what the agent passes as place_call's "to"
-      name: Marco                      # optional: the default callee
+    - number: "+1 212 555 0123"        # quote numbers
+      label: Alex (mobile)             # what the agent passes as place_call's "to"
+      name: Alex                       # optional: the default callee
       kind: personal                   # optional: business | personal
+    - number: "+44 20 7946 0018"
+      label: Pizzeria
+      name: Luigi's Pizzeria
+      kind: business
   limits:
     max_minutes: 5                     # at most 7
     ring_seconds: 25                   # 5 to 120

@@ -30,8 +30,8 @@ const (
 	transcriptionModel = "gpt-4o-transcribe"
 )
 
-// voices maps the built-in voices to their grammatical gender (true: female), which the Italian
-// prompt states. A newer voice needs Engine.Female set explicitly.
+// voices maps the built-in voices to their grammatical gender (true: female), which a prompt may
+// state (examples/prompt-it.tmpl does). A newer voice needs Engine.Female set explicitly.
 var voices = map[string]bool{
 	"marin": true, "cedar": false, "alloy": true, "ash": false, "ballad": false,
 	"coral": true, "echo": false, "sage": true, "shimmer": true, "verse": false,

@@ -1,25 +1,29 @@
-# The smallest useful dialout.yaml: Amazon Nova 2 Sonic, a quick tunnel per call, one number on
+# The smallest useful dialout.yaml: Amazon Nova 2 Sonic, a quick tunnel per call, two numbers on
 # the allowlist, transcripts under $DIALOUT_DATA (/data in the container). Every other key keeps its
 # default: dialout.example.yaml lists them all.
 #
 # It references only the secrets it uses: set them in the environment (docker run -e or --env-file),
 # or add secrets_file: secrets.env.
 
-owner: Marco
-timezone: Europe/Rome
+owner: Alex
+timezone: Europe/London
 
 twilio:
   account_sid: ${TWILIO_ACCOUNT_SID}
   api_key_sid: ${TWILIO_API_KEY_SID}
   api_key_secret: ${TWILIO_API_KEY_SECRET}
   auth_token: ${TWILIO_AUTH_TOKEN}
-  from: "+353 85 000 0000"
+  from: "+1 646 555 0199"
 
 engine:
   name: sonic
   sonic:
     region: eu-north-1
-    voice: beatrice
+    voice: tiffany
+
+# Only for dialout serve (MCP over HTTP): the bearer token, at least 32 characters.
+server:
+  mcp_token: ${DIALOUT_MCP_TOKEN}
 
 # Uncomment to upload the calls to S3 instead of keeping them in the data folder.
 # storage:
@@ -29,8 +33,13 @@ engine:
 
 policy:
   enabled: true
+  countries: [GB, US, IT]
   allowlist:
-    - number: "+39 333 000 0000"
-      label: Marco (mobile)
-      name: Marco
+    - number: "+1 212 555 0123"
+      label: Alex (mobile)
+      name: Alex
       kind: personal
+    - number: "+44 20 7946 0018"
+      label: Pizzeria
+      name: Luigi's Pizzeria
+      kind: business

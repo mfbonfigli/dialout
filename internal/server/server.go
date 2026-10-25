@@ -106,9 +106,9 @@ func (s *Server) MCP() *mcp.Server {
 		Description: "Place a phone call. A voice agent calls the number, talks to whoever answers about the objective, and hangs up. " +
 			"Returns the call_id at once; follow with get_call. Only numbers allowed by the policy can be called (see list_numbers): " +
 			"in allowlist mode the listed ones, in open mode any number of the allowed countries and types, within the calling hours. " +
-			"Example brief for a pizzeria: callee \"la pizzeria Da Mario\", kind business, opening \"Buonasera, vorrei ordinare una pizza da asporto.\", " +
-			"objective \"Una pizza margherita da asporto, da ritirare alle 22.\", limits \"Va bene dalle 21:30 alle 23. Fino a 20 euro.\", " +
-			"context \"La prenotazione è a nome di Marco.\"",
+			"Example brief for a pizzeria: callee \"Luigi's Pizzeria\", kind business, opening \"Hi, I'd like to order a pizza for pickup.\", " +
+			"objective \"One margherita pizza for pickup at 10 pm.\", limits \"Anywhere from 9:30 to 11 pm is fine. Up to $20.\", " +
+			"context \"The order is under the name Alex.\"",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: &no, OpenWorldHint: &yes},
 	}, s.placeCall)
 	mcp.AddTool(srv, &mcp.Tool{
@@ -209,8 +209,8 @@ func (s *Server) listNumbers(ctx context.Context, _ *mcp.CallToolRequest, _ stru
 // --- place_call
 
 type placeCallIn struct {
-	To         string `json:"to" jsonschema:"a label from list_numbers, or a number in international form (+39…)"`
-	Callee     string `json:"callee,omitempty" jsonschema:"who answers, as the agent should refer to them: 'la pizzeria Da Mario', 'Anna, la sorella di Marco'. Leave out when the number's default name says it"`
+	To         string `json:"to" jsonschema:"a label from list_numbers, or a number in international form (+44…)"`
+	Callee     string `json:"callee,omitempty" jsonschema:"who answers, as the agent should refer to them: 'Luigi's Pizzeria', 'Anna, the owner's sister'. Leave out when the number's default name says it"`
 	Kind       string `json:"kind,omitempty" jsonschema:"business (shops, restaurants, offices: they don't know the owner) or personal (friends, family). Sets the register. Leave out when the number has a default"`
 	Opening    string `json:"opening,omitempty" jsonschema:"the first sentence, spoken word for word, as a person would start the call; optional"`
 	Objective  string `json:"objective" jsonschema:"why the agent calls, in words it can say, with the preferred option. No ranges"`

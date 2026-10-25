@@ -477,7 +477,7 @@ func TestCallEndToEnd(t *testing.T) {
 	}
 	if m.Status != "completed" || m.TwilioSID != "CA1" || m.Outcome == nil || m.StreamStarted == nil || m.Ended == nil ||
 		m.EndReason != "end_call" || string(m.Policy) != `{"Allowed":true}` || m.Objective != "Chiedere a che ora arriva." ||
-		m.Engine != "sonic" || m.Voice != "beatrice" || !m.Audio {
+		m.Engine != "sonic" || m.Voice != "tiffany" || !m.Audio {
 		t.Errorf("meta.json = %s", mb)
 	}
 
@@ -721,7 +721,7 @@ func TestCueWaitsForTheAgentsAnswer(t *testing.T) {
 func TestBadVoiceFailsBeforeCalling(t *testing.T) {
 	h := newHarness(t)
 	cfg := h.config()
-	cfg.Voice = "matthew" // not a Sonic voice for Italian
+	cfg.Voice = "joanna" // a Polly voice, not Sonic's
 	res := waitResult(t, startCall(h, context.Background(), cfg, params()))
 	if res.Err == nil || res.Status != "failed" || res.TwilioSID != "" {
 		t.Fatalf("result = %+v", res)
