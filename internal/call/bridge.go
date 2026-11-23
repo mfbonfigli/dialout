@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -24,6 +25,18 @@ const (
 	// replyWait bounds how long the bridge waits for Sonic to answer the callee before a cue may go
 	// out anyway.
 	replyWait = 8 * time.Second
+	// turnIdle closes a turn the engine never marked: after this long with nothing left to play the
+	// agent cannot still be speaking, and without it no cue would ever go out again.
+	turnIdle = 2 * time.Second
+	// The barge-in gate counts Twilio's 20 ms frames.
+	// bargeInMin (300 ms) is how much speech in a row takes the turn while the agent is talking;
+	// anything shorter is a backchannel ("sì", "certo", a click) and every engine takes any speech
+	// for a turn handover, saying its line again from the start.
+	bargeInMin = 15
+	// bargeInGap (200 ms) ends a burst: this much without speech and it was a backchannel.
+	bargeInGap = 10
+	// bargeInHold (2 s) bounds what is ever held back, so a long burst can't grow without limit.
+	bargeInHold = 100
 )
 
 // bridge carries one conversation: the callee's audio from Twilio to Sonic and the recorder, the
@@ -45,6 +58,11 @@ type bridge struct {
 	lastAudio   time.Time
 	agentSpoke  bool
 	calleeSpoke bool
+	turnOpen    bool // agent audio arrived and its turn hasn't ended
+
+	// agentAudible is what the reader needs to know to hold the callee's audio back; the loop owns
+	// every other field.
+	agentAudible atomic.Bool
 
 	lastCallee  time.Time // the callee's last transcript line
 	lastTurnEnd time.Time // the end of the agent's last turn
@@ -157,6 +175,12 @@ func (b *bridge) run(ctx context.Context) string {
 			if len(b.pending) > 0 && now.Sub(b.lastAudio) >= pendingFlush {
 				b.mark(ctx)
 			}
+			if b.turnOpen && len(b.pending) == 0 && len(b.outstanding) == 0 && now.Sub(b.lastAudio) >= turnIdle {
+				// The engine never marked the end of the turn and its audio is over: treat it as
+				// over, or no cue would ever go out again.
+				b.turnOpen = false
+			}
+			b.agentAudible.Store(b.speaking(now))
 			if b.wrapDue && !b.wrapSent && b.cueSafe(now) {
 				b.wrapSent = true
 				b.cue(b.r.vc.Prompt.Cues.WrapUp, false)
@@ -178,6 +202,7 @@ func (b *bridge) run(ctx context.Context) string {
 // through the loop), marks and the start of speech to the loop.
 func (b *bridge) read(ctx context.Context) {
 	var v vad
+	var gate bargein
 	for {
 		_, data, err := b.ws.Read(ctx)
 		if err != nil {
@@ -201,12 +226,16 @@ func (b *bridge) read(ctx context.Context) {
 			}
 			pcm := audio.MulawToPCM(nil, mu)
 			b.r.rec.Callee(ts, pcm)
-			_ = b.sess.SendAudio(pcm) // a closed session shows up in the loop
 			if v.speech(pcm) {
 				select {
 				case b.spoke <- struct{}{}:
 				default:
 				}
+			}
+			// While the agent is audible the callee's audio is held back until it proves to be
+			// speech: a two-word acknowledgement would otherwise cut the agent off (see bargein).
+			if heard := gate.audio(pcm, b.agentAudible.Load()); len(heard) > 0 {
+				_ = b.sess.SendAudio(heard) // a closed session shows up in the loop
 			}
 		case "mark":
 			b.r.rec.AgentPlayed(m.Mark.Name)
@@ -238,12 +267,19 @@ func (b *bridge) handle(ctx context.Context, ev voice.Event) {
 		}
 		b.lastAudio = now
 		b.agentSpoke = true
+		b.turnOpen = true
 		if !b.endCallAt.IsZero() {
 			b.audioAfterEnd = true
 		}
 	case voice.TurnEnd:
 		b.mark(ctx)
 		b.lastTurnEnd = now
+		b.turnOpen = false
+		if ev.Inferred {
+			// The engine worked the end of the turn out from a pause in the audio, not from the
+			// model: the audio may still be playing, so this is no proof a goodbye has been said.
+			return
+		}
 		if !b.endCallAt.IsZero() {
 			b.turnEndAfterEnd = true
 		}
@@ -251,6 +287,7 @@ func (b *bridge) handle(ctx context.Context, ev voice.Event) {
 			b.turnEndAfterFinal = true
 		}
 	case voice.Interrupted:
+		b.turnOpen = false
 		// Drop what Twilio still has queued. The recorder keeps what was heard up to now. With
 		// nothing playing there is nothing to cut: engines like OpenAI's signal the callee's speech
 		// on every turn.
@@ -332,10 +369,18 @@ func (b *bridge) cue(text string, respond bool) {
 	}
 }
 
-// silent reports whether the callee has heard all the agent's audio and none has come for a while,
-// so a cue won't cut the agent off (Sonic takes text over audible speech as a barge-in).
+// speaking reports whether the agent's audio is playing or queued: while it is, a short burst from
+// the callee would cut the agent off and make it say its line again from the start.
+func (b *bridge) speaking(now time.Time) bool {
+	return len(b.pending) > 0 || len(b.outstanding) > 0 || now.Sub(b.lastAudio) < b.r.t.AgentQuiet
+}
+
+// silent reports whether the callee has heard all the agent's audio, the agent isn't in the middle of
+// a turn, and none has come for a while, so a cue won't cut the agent off (Sonic takes text over
+// audible speech as a barge-in, ElevenLabs a user message as the callee talking, and both then say
+// their line again from the start).
 func (b *bridge) silent(now time.Time) bool {
-	return len(b.outstanding) == 0 && len(b.pending) == 0 && now.Sub(b.lastAudio) >= b.r.t.AgentQuiet
+	return !b.turnOpen && !b.speaking(now)
 }
 
 // cueSafe reports whether a cue can go out without cutting into the conversation: the agent is
@@ -347,14 +392,17 @@ func (b *bridge) cueSafe(now time.Time) bool {
 }
 
 // overtime closes the call politely at the time limit: the final cue goes out as soon as the agent
-// is silent (or after a third of the grace period anyway), the line drops once the agent has
-// answered it, and at the end of the grace period in any case. Twilio's TimeLimit stays above.
+// has finished its turn and is silent, the line drops once the agent has answered it, and at the end
+// of the grace period in any case. Twilio's TimeLimit stays above.
 func (b *bridge) overtime(now time.Time) string {
 	if b.overtimeAt.IsZero() {
 		return ""
 	}
 	grace := b.r.t.Overtime
-	if b.finalAt.IsZero() && (b.silent(now) || now.Sub(b.overtimeAt) >= grace/3) {
+	// Never in the middle of a sentence: a cue sent over the agent's speech cuts it off, and the
+	// agent starts that sentence again. If the agent never goes quiet, the grace period ends the
+	// call anyway.
+	if b.finalAt.IsZero() && b.silent(now) {
 		b.finalAt = now
 		b.wrapSent = true
 		b.cue(b.r.vc.Prompt.Cues.Final, true)
@@ -498,7 +546,8 @@ type vad struct{ run int }
 
 const vadLevel = 600 // mean absolute amplitude, 16-bit scale
 
-func (v *vad) speech(pcm []int16) bool {
+// frame reports whether a single 20 ms frame is above the line-noise level.
+func (v *vad) frame(pcm []int16) bool {
 	if len(pcm) == 0 {
 		return false
 	}
@@ -510,10 +559,79 @@ func (v *vad) speech(pcm []int16) bool {
 			sum += int64(s)
 		}
 	}
-	if sum/int64(len(pcm)) > vadLevel {
+	return sum/int64(len(pcm)) > vadLevel
+}
+
+func (v *vad) speech(pcm []int16) bool {
+	if v.frame(pcm) {
 		v.run++
 	} else {
 		v.run = 0
 	}
 	return v.run == 3
+}
+
+// frameMS is the length of a Twilio media frame.
+const frameMS = 20
+
+// bargein decides what of the callee's audio reaches the engine while the agent is talking. Every
+// engine takes callee speech for a turn handover: a two-word acknowledgement ("sì", "certo") cuts
+// the agent off, and the agent then says its line again from the start. A burst is therefore held
+// back until it proves to be speech: a backchannel is dropped, a real interruption goes through.
+type bargein struct {
+	vad     vad
+	held    []int16 // callee audio held back while the agent is audible
+	frames  int     // frames held back
+	speech  int     // frames of speech among them
+	quiet   int     // frames without speech since the last speech frame
+	through bool    // the callee is talking for real: nothing is held back any more
+}
+
+// audio returns what to forward to the engine: the frame itself, the burst just released, or nothing
+// while the callee's audio is held back or dropped.
+func (g *bargein) audio(pcm []int16, agentAudible bool) []int16 {
+	if !agentAudible {
+		g.through = false
+		if len(g.held) == 0 {
+			return pcm
+		}
+		out := append(g.held, pcm...)
+		g.drop()
+		return out
+	}
+	if g.through {
+		return pcm
+	}
+	g.held = append(g.held, pcm...)
+	g.frames++
+	if g.vad.frame(pcm) {
+		g.speech++
+		g.quiet = 0
+	} else {
+		g.quiet++
+	}
+	switch {
+	case g.speech >= bargeInMin:
+		g.through = true
+		return g.release()
+	case g.quiet >= bargeInGap:
+		g.drop() // an acknowledgement or a click: the agent never hears it
+		return nil
+	case g.frames >= bargeInHold:
+		g.through = true
+		return g.release() // too much to keep holding: let it through
+	}
+	return nil
+}
+
+// release hands over the held audio and keeps the burst open.
+func (g *bargein) release() []int16 {
+	out := g.held
+	g.held, g.frames, g.speech, g.quiet = nil, 0, 0, 0
+	return out
+}
+
+// drop forgets the held audio, backchannel or not.
+func (g *bargein) drop() {
+	g.held, g.frames, g.speech, g.quiet, g.through = nil, 0, 0, 0, false
 }
