@@ -243,7 +243,7 @@ func TestConversation(t *testing.T) {
 		t.Errorf("callee transcript = %#v", e)
 	}
 
-	// Barge-in: one Interrupted, and the transcript is what was actually said.
+	// Barge-in: one Interrupted, a note to the agent, and the transcript is what was actually said.
 	f.send(map[string]any{"type": "agent_response", "agent_response_event": map[string]any{"agent_response": "Per le dieci, e se possibile anche"}})
 	f.audio(fill(160, 500), false)
 	f.send(map[string]any{"type": "interruption", "interruption_event": map[string]any{"reason": "user"}})
@@ -251,6 +251,10 @@ func TestConversation(t *testing.T) {
 		"original_agent_response": "Per le dieci, e se possibile anche", "corrected_agent_response": "Per le dieci",
 	}})
 	next(t, s) // audio
+	if m := f.next(t, false); m["type"] != "contextual_update" ||
+		!strings.Contains(m["text"].(string), "Per le dieci, e se possibile anche") {
+		t.Errorf("the agent wasn't told it was interrupted: %v", m)
+	}
 	if e := next(t, s); e != (voice.Interrupted{}) {
 		t.Errorf("after the interruption: %#v", e)
 	}
@@ -283,7 +287,7 @@ func TestConversation(t *testing.T) {
 		t.Errorf("end_call = %#v", e)
 	}
 
-	// A goodbye without is_final: the turn ends when the audio stops.
+	// A goodbye without is_final: the turn ends when the audio stops, and the end is inferred.
 	f.send(map[string]any{"type": "agent_response", "agent_response_event": map[string]any{"agent_response": "Grazie, buonasera!"}})
 	f.audio(fill(160, 300), false)
 	next(t, s)
@@ -291,8 +295,8 @@ func TestConversation(t *testing.T) {
 	if e := next(t, s); e != (voice.Transcript{Speaker: voice.SpeakerAgent, Text: "Grazie, buonasera!"}) {
 		t.Errorf("goodbye transcript = %#v", e)
 	}
-	if e := next(t, s); e != (voice.TurnEnd{}) || time.Since(start) > time.Second {
-		t.Errorf("no TurnEnd after the audio stopped: %#v after %v", e, time.Since(start))
+	if e := next(t, s); e != (voice.TurnEnd{Inferred: true}) || time.Since(start) > time.Second {
+		t.Errorf("no inferred TurnEnd after the audio stopped: %#v after %v", e, time.Since(start))
 	}
 
 	// End closes the conversation normally.
@@ -304,6 +308,18 @@ func TestConversation(t *testing.T) {
 	}
 	if err := s.SendAudio(pcm); !errors.Is(err, voice.ErrClosed) {
 		t.Errorf("SendAudio after End: %v", err)
+	}
+}
+
+func TestInterruptedHint(t *testing.T) {
+	if got := interruptedHint("  Per le dieci,   e se\npossibile anche  "); !strings.Contains(got, `"Per le dieci, e se possibile anche"`) ||
+		!strings.Contains(got, "Don't start over") {
+		t.Errorf("hint = %s", got)
+	}
+	// A long line is cut to a phrase, at a word boundary.
+	got := interruptedHint(strings.Repeat("parola ", 40))
+	if !strings.HasSuffix(got, "]") || !strings.Contains(got, "…") || strings.Count(got, "parola") > 20 {
+		t.Errorf("long hint = %s (%d chars, %d parola)", got, len(got), strings.Count(got, "parola"))
 	}
 }
 
