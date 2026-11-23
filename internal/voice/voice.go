@@ -82,8 +82,10 @@ type Event interface{ isEvent() }
 type AudioOut struct{ PCM []int16 }
 
 // TurnEnd means all the audio of the agent's current turn has been delivered (it may still be
-// playing). After EndCall, it marks the end of the goodbye.
-type TurnEnd struct{}
+// playing). After EndCall, it marks the end of the goodbye. Inferred is set when the engine worked
+// the end of the turn out itself, from a pause in the audio, instead of being told by the model: the
+// audio may still be playing, so an inferred turn must not be taken for the end of a goodbye.
+type TurnEnd struct{ Inferred bool }
 
 // Interrupted means the callee talked over the agent: drop the agent audio not yet played.
 type Interrupted struct{}
