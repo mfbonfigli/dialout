@@ -157,7 +157,7 @@ func (s *Session) loop(msgs <-chan []byte) {
 			}
 		case now := <-tick.C:
 			if s.turnOpen && now.Sub(s.lastAudio) >= s.quiet {
-				if s.endTurn() != nil {
+				if s.endTurn(true) != nil { // worked out here, not marked by ElevenLabs
 					return
 				}
 			}
@@ -235,7 +235,7 @@ func (s *Session) handle(data []byte) error {
 			return err
 		}
 		if m.Audio.IsFinal {
-			return s.endTurn()
+			return s.endTurn(false)
 		}
 
 	case "agent_response":
@@ -271,6 +271,9 @@ func (s *Session) handle(data []byte) error {
 		s.waitCorrection = s.pending != ""
 		if s.audioSinceStop {
 			s.audioSinceStop = false
+			if err := s.noteInterruption(); err != nil {
+				return err
+			}
 			return s.emit(voice.Interrupted{})
 		}
 
@@ -306,15 +309,44 @@ func (s *Session) answerTool(name, id string, params json.RawMessage) error {
 	return s.emit(ev)
 }
 
-// endTurn reports the end of the agent's turn, and its text unless a correction is due.
-func (s *Session) endTurn() error {
+// noteInterruption tells the agent it was talked over, and that it must not start over: ElevenLabs
+// regenerates the interrupted turn from the beginning, so the callee would hear the same words twice.
+// A contextual update reaches the agent without interrupting it again; the text it was saying is in
+// pending, before any correction replaces it.
+func (s *Session) noteInterruption() error {
+	if s.pending == "" {
+		return nil
+	}
+	return s.send(map[string]any{"type": "contextual_update", "text": interruptedHint(s.pending)})
+}
+
+// interruptedHint is the note sent after a barge-in: the first line of what the agent was saying, and
+// the instruction that matters.
+func interruptedHint(text string) string {
+	const max = 120
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > max {
+		cut := text[:max]
+		if i := strings.LastIndexByte(cut, ' '); i > 0 {
+			cut = cut[:i]
+		}
+		text = cut + "…"
+	}
+	return `[You were interrupted: the callee talked over you while you were saying "` + text +
+		`". Don't start over and don't repeat it: say what is still missing, or answer what they said.]`
+}
+
+// endTurn reports the end of the agent's turn, and its text unless a correction is due. Inferred is
+// true when the quiet timer worked it out rather than ElevenLabs marking the last audio chunk: the
+// audio may still be playing, so the call engine must not take it for the end of a goodbye.
+func (s *Session) endTurn(inferred bool) error {
 	s.turnOpen = false
 	if !s.waitCorrection {
 		if err := s.flushAgent(); err != nil {
 			return err
 		}
 	}
-	return s.emit(voice.TurnEnd{})
+	return s.emit(voice.TurnEnd{Inferred: inferred})
 }
 
 func (s *Session) flushAgent() error {
